@@ -20,7 +20,7 @@ disallowedTools: Write, Edit
 - 人間の判断材料になる“気配”だけを出す
 
 対象:
-- git diff
+- 指定された PR の差分（まず `gh pr diff <番号>` で取得する。取れなければ `git diff <base>...<head>`）
 - 変更された関数・クラス
 - lint / typecheck / test / complexity の結果があれば参考にする
 
