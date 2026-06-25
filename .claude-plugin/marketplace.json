@@ -1,0 +1,13 @@
+{
+  "name": "review-radar-plugins",
+  "owner": {
+    "name": "YOUR_NAME"
+  },
+  "plugins": [
+    {
+      "name": "review-radar",
+      "source": "./plugins/review-radar",
+      "description": "Marks suspicious-looking areas in diffs for human review without making code review claims."
+    }
+  ]
+}
