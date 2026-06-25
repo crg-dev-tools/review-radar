@@ -17,6 +17,13 @@ Claude Code 用のプラグインマーケットプレイスです。
 /plugin install review-radar@review-radar-plugins
 ```
 
+`SSH host key ... known_hosts` 系のエラーが出る場合は、HTTPS URL を明示して追加してください（公開リポジトリではこちらが確実です）。
+
+```text
+/plugin marketplace add https://github.com/crg-dev-tools/review-radar.git
+/plugin install review-radar@review-radar-plugins
+```
+
 詳しい使い方は各プラグインの README を参照してください。
 
 ## 構成

@@ -19,6 +19,13 @@ Claude Codeで marketplace を追加します。
 /plugin install review-radar@review-radar-plugins
 ```
 
+`SSH host key ... known_hosts` 系のエラーが出る場合は、HTTPS URL を明示して追加してください（公開リポジトリではこちらが確実です）。
+
+```text
+/plugin marketplace add https://github.com/crg-dev-tools/review-radar.git
+/plugin install review-radar@review-radar-plugins
+```
+
 ## 使い方
 
 インストール後、`review-radar` エージェントに PR を指定して呼び出します。
