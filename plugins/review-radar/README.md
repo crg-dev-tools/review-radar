@@ -15,16 +15,18 @@ review-radar は、コードスメルやバグを断定しません。
 Claude Codeで marketplace を追加します。
 
 ```text
-/plugin marketplace add YOUR_NAME/review-radar-marketplace
+/plugin marketplace add crg-dev-tools/review-radar
 /plugin install review-radar@review-radar-plugins
 ```
 
 ## 使い方
 
-インストール後、`review-radar` エージェントを呼び出します。
+インストール後、`review-radar` エージェントに PR を指定して呼び出します。
 
 ```text
-@review-radar この差分で先に見るべき箇所をマーキングして
+@review-radar PR #123 で先に見るべき箇所をマーキングして
 ```
 
-レビュー前に、注目すべき箇所を最大5件まで「見る優先度」付きで返します。
+エージェントが差分（`gh pr diff <番号>`）を取得し、注目すべき箇所を最大5件まで「見る優先度」付きで返します。
+
+差分取得に `gh` の認証が必要です。`disallowedTools: Write, Edit` により書き込み系ツールは無効化され、差分取得用の Bash / Read のみが残ります。
