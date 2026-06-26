@@ -1,5 +1,5 @@
 {
   "name": "review-radar",
-  "description": "Marks suspicious-looking areas in diffs for human review without making code review claims.",
-  "version": "0.1.0"
+  "description": "Scans diffs for code smells and risky spots a reviewer might miss, prioritizing recall (few false negatives), with short optional fix directions.",
+  "version": "1.0.0"
 }
