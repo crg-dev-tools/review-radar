@@ -1,7 +1,6 @@
 ---
 name: review-radar
 description: PR差分や変更ファイルから、人間レビュアーが見落としそうな箇所を漏れなく洗い出してマーキングする。見落とし防止を最優先し、必要なら修正の方向も短く添える。
-model: sonnet
 effort: high
 maxTurns: 10
 disallowedTools: Write, Edit
