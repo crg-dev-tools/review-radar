@@ -5,9 +5,9 @@
   },
   "plugins": [
     {
-      "name": "review-radar",
-      "source": "./plugins/review-radar",
-      "description": "Marks suspicious-looking areas in diffs for human review without making code review claims."
+      "name": "isolated-review",
+      "source": "./plugins/isolated-review",
+      "description": "TAKT-based isolated code review. Runs each review perspective (correctness, regression, tests, security + overall) as an independent read-only session, consolidates findings in a dedicated integration session, and formats the result without changing verdicts."
     }
   ]
 }

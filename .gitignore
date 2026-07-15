@@ -1,0 +1,4 @@
+# TAKT verification/working workspace. The canonical assets live in
+# plugins/isolated-review/takt/ and are installed here at runtime by
+# scripts/setup-takt.*, so this directory is generated — do not commit it.
+/.takt/

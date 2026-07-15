@@ -1,5 +1,0 @@
-{
-  "name": "review-radar",
-  "description": "Scans diffs for code smells and risky spots a reviewer might miss, prioritizing recall (few false negatives), with short optional fix directions.",
-  "version": "1.0.0"
-}

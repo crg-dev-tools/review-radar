@@ -1,0 +1,262 @@
+# Review perspective catalog — single reusable source of truth.
+#
+# Each perspective is defined ONCE here and REFERENCES TAKT facets; it is never
+# duplicated into the workflow YAML by hand. The isolated-code-review workflow
+# consumes this catalog:
+#   - `required: true` perspectives are the always-on isolated reviewers. They are
+#     also baked statically into workflows/isolated-code-review.yaml for maximum
+#     reproducibility (the two must stay in sync — the review-template-manager
+#     skill keeps them aligned).
+#   - `required: false` perspectives are proposed per change (based on applies_when)
+#     and, when selected, injected as extra parallel sub-steps into a generated
+#     workflow copy.
+#
+# Faceted prompting is respected: responsibilities are split across facets and are
+# NOT mixed into this catalog.
+#   persona          -> WHO   (reviewer role / expertise)
+#   policy           -> RULES (read-only, evidence-required, review policy)
+#   knowledge        -> CONTEXT (domain checklists / assumptions)
+#   instruction      -> WHAT  (how to run the review)
+#   output_contract  -> OUTPUT (shared finding-contract format the manager consumes)
+#
+# Every reviewer runs read-only in its own session (session_key) and receives only:
+# the target diff, the required spec/acceptance context, its own perspective, and
+# the shared output contract. It never receives parent hypotheses, other reviewers'
+# findings, or prior conclusions.
+
+version: 1
+
+perspectives:
+  # ---- Mandatory perspectives (always included) --------------------------------
+  - id: correctness
+    name: 正確性・バグ
+    description: 変更差分そのものの実装バグ・ロジック誤り・エッジケース漏れを検出する。
+    required: true
+    applies_when:
+      - 常に適用
+    checks:
+      - ロジック誤り・境界条件・オフバイワン
+      - null/undefined/空・例外・エラー処理
+      - 副作用/状態変更の各経路（正常・早期終了・例外・後処理）
+    required_context:
+      - diff
+      - 要求仕様・受入条件
+    exclusions:
+      - 純粋なフォーマット・コメントのみの変更
+    facets:
+      persona: coding-reviewer
+      policy: [review, coding]
+      knowledge: []
+      instruction: review-coding
+      output_contract: coding-review-finding-contract
+    session_key: review-correctness
+
+  - id: regression
+    name: 既存機能への影響・回帰
+    description: 変更が既存の動作を壊さないかを、既存の呼び出し元・契約まで辿って確認する。
+    required: true
+    applies_when:
+      - 常に適用
+    checks:
+      - 共有ヘルパ/契約/デフォルト変更が既存呼び出し元に波及していないか
+      - シグネチャ/スキーマ/設定キー/出力形式の後方互換
+      - 永続データ・シリアライズ形式の互換
+    required_context:
+      - diff
+      - 既存の呼び出し元・契約
+    exclusions:
+      - 新規追加のみで既存経路に触れない変更
+    facets:
+      persona: regression-reviewer
+      policy: [review]
+      knowledge: []
+      instruction: review-regression
+      output_contract: regression-review-finding-contract
+    session_key: review-regression
+
+  - id: tests
+    name: テスト不足
+    description: 変更に対して必要なテストが不足していないか、分岐・境界の網羅を確認する。
+    required: true
+    applies_when:
+      - 常に適用
+    checks:
+      - 変更ロジックの分岐・境界のカバレッジ
+      - 異常系・エラー経路のテスト
+      - 回帰を守る既存テストの過不足
+    required_context:
+      - diff
+      - 既存テスト
+    exclusions:
+      - テスト対象にならない設定・ドキュメントのみの変更
+    facets:
+      persona: testing-reviewer
+      policy: [review, testing]
+      knowledge: [unit-testing, e2e-testing]
+      instruction: review-test
+      output_contract: testing-review-finding-contract
+    session_key: review-tests
+
+  - id: security
+    name: 基本的なセキュリティ
+    description: インジェクション・認証認可・データ保護・依存など基本的な脆弱性を確認する。
+    required: true
+    applies_when:
+      - 常に適用
+    checks:
+      - インジェクション（SQL/コマンド/パス等）
+      - 認証・認可・機密データの取り扱い
+      - 依存・入力バリデーション
+    required_context:
+      - diff
+      - 信頼境界・入力経路
+    exclusions:
+      - セキュリティ影響のない内部リファクタのみ
+    facets:
+      persona: security-reviewer
+      policy: [review]
+      knowledge: [security]
+      instruction: review-security
+      output_contract: security-review-finding-contract
+    session_key: review-security
+
+  - id: overall
+    name: 総合レビュー
+    description: マージ可能な品質かを俯瞰する総合レビュー。親セッションではなく独立レビュアーとして実行する。
+    required: true
+    applies_when:
+      - 常に適用
+    checks:
+      - 要求仕様の充足
+      - 変更全体の一貫性・妥当性
+      - マージ可否の総合判断
+    required_context:
+      - diff
+      - 要求仕様・受入条件
+    exclusions: []
+    facets:
+      persona: pure-reviewer
+      policy: [review]
+      knowledge: []
+      instruction: review-pure
+      output_contract: pure-review-finding-contract
+    session_key: review-overall
+
+  # ---- Optional perspectives (proposed per change) -----------------------------
+  - id: concurrency
+    name: 並行処理・競合状態
+    description: 非同期処理や共有状態に関する不具合を確認する。
+    required: false
+    applies_when:
+      - 非同期処理を変更している
+      - 共有状態を更新している
+      - リトライ・タイムアウト・ロックを扱う
+    checks:
+      - race conditionがないか
+      - deadlockの可能性がないか
+      - retry時に二重実行されないか
+      - リソース解放が全経路で行われるか
+    required_context:
+      - diff
+      - 関連する呼び出し元
+      - 状態遷移
+    exclusions:
+      - 単純な同期処理のみの場合
+    facets:
+      persona: coding-reviewer
+      policy: [review]
+      knowledge: []
+      instruction: review-concurrency
+      output_contract: concurrency-review-finding-contract
+    session_key: review-concurrency
+
+  - id: performance
+    name: パフォーマンス・リソース効率
+    description: ホットパスやIO/クエリの非効率・リソース増加を確認する。
+    required: false
+    applies_when:
+      - ループ・クエリ・IO/ネットワーク呼び出しを変更している
+      - データ構造やアルゴリズムを変更している
+      - 大きな入力・高頻度呼び出しが想定される
+    checks:
+      - N+1・重複IO・ループ内の冗長処理
+      - 不要な高計算量・全走査
+      - 上限のないメモリ/キャッシュ増加
+    required_context:
+      - diff
+      - 想定入力サイズ・呼び出し頻度
+    exclusions:
+      - 性能に影響しない小規模変更
+    facets:
+      persona: coding-reviewer
+      policy: [review]
+      knowledge: []
+      instruction: review-performance
+      output_contract: performance-review-finding-contract
+    session_key: review-performance
+
+  - id: architecture
+    name: アーキテクチャ・設計
+    description: 設計・境界・依存方向の妥当性を確認する（builtin facet を利用）。
+    required: false
+    applies_when:
+      - モジュール境界・依存関係・レイヤ構成を変更している
+      - 新しい抽象・パターンを導入している
+    checks:
+      - 責務分割・結合度・凝集度
+      - 依存方向・境界の一貫性
+    required_context:
+      - diff
+      - 既存アーキテクチャ
+    exclusions:
+      - 局所的な実装変更のみ
+    facets:
+      persona: architecture-reviewer
+      policy: [review]
+      knowledge: [architecture]
+      instruction: review-arch
+      output_contract: architecture-review-finding-contract
+    session_key: review-architecture
+
+  - id: frontend
+    name: フロントエンド
+    description: UI/コンポーネント/状態管理の観点でレビューする（builtin facet を利用）。
+    required: false
+    applies_when:
+      - UIコンポーネント・画面・状態管理を変更している
+    checks:
+      - コンポーネント設計・再レンダリング
+      - アクセシビリティ・状態管理
+    required_context:
+      - diff
+      - 関連コンポーネント
+    exclusions:
+      - フロントに関係しない変更
+    facets:
+      persona: frontend-reviewer
+      policy: [review]
+      knowledge: [frontend, react]
+      instruction: review-frontend
+      output_contract: frontend-review-finding-contract
+    session_key: review-frontend
+
+  - id: qa
+    name: QA（テスト戦略・保守性）
+    description: テスト戦略・カバレッジ・エラー処理・保守性を横断的に確認する（builtin facet を利用）。
+    required: false
+    applies_when:
+      - 品質保証の観点を厚くしたい変更
+    checks:
+      - テスト戦略・カバレッジ方針
+      - エラー処理・保守性
+    required_context:
+      - diff
+      - 既存テスト方針
+    exclusions: []
+    facets:
+      persona: qa-reviewer
+      policy: [review, qa]
+      knowledge: []
+      instruction: review-qa
+      output_contract: qa-review-finding-contract
+    session_key: review-qa
