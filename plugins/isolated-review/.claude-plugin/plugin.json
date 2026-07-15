@@ -1,0 +1,5 @@
+{
+  "name": "isolated-review",
+  "description": "TAKT-based isolated code review: runs each review perspective as an independent read-only session, consolidates findings in a dedicated integration session, and lets the parent only format the result.",
+  "version": "0.1.0"
+}
