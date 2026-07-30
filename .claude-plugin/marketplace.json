@@ -8,6 +8,11 @@
       "name": "isolated-review",
       "source": "./plugins/isolated-review",
       "description": "TAKT-based isolated code review. Runs each review perspective (correctness, regression, tests, security + overall) as an independent read-only session, consolidates findings in a dedicated integration session, and formats the result without changing verdicts."
+    },
+    {
+      "name": "light-review",
+      "source": "./plugins/light-review",
+      "description": "Cognitive-load-light PR review. Starts from the PR's own intent and, for each spot, explains its function, the author's likely intent, the gap from the ideal, and the concrete impact of leaving it — while also stating why the OK spots are OK. Code-smell centric, no TAKT."
     }
   ]
 }
