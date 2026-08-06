@@ -1,0 +1,5 @@
+{
+  "name": "health-checkup",
+  "description": "Periodic repository health checkup. Counts — never blocks — the obligations offloaded during development: unresolved TODOs, \"guaranteed elsewhere\" claims classified as verified / missing / untraceable, stale and unmilestoned issues, coverage, and spec-implementation drift. An LLM only extracts where a claim points; scripts decide whether that place exists, do the arithmetic, and append the numbers next to their baselines. The diagnosis is left to humans.",
+  "version": "0.1.0"
+}

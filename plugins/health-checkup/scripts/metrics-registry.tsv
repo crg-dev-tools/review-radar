@@ -1,0 +1,38 @@
+# The single source of truth for how a metric is presented.
+#
+# append-health.sh reads it for the display order, the label and the baseline;
+# render-html.sh reads it for the grouping and the tooltip text. Keeping one file
+# means a metric cannot be labelled one way in the Markdown and another way in
+# the HTML.
+#
+# Columns (tab separated): key, label, baseline, group, description
+#   baseline    : what "better" looks like — 減少 / 上昇 / 0 / — . The HTML reads
+#                 this to decide which direction of change is coloured green.
+#   description : what the number actually counts, shown as the tooltip.
+# {HC_STALE_DAYS} in a label is replaced with the configured threshold.
+# Keys missing here still render, grouped under その他 with no tooltip.
+#
+#key	label	baseline	group	description
+offload.verified	offload: traced-verified	—	オフロード追跡（完了の主張）	「別の場所で担保済み」と書かれた主張のうち、宛先が実在するもの。健全なオフロードなので増えて構わない
+offload.missing	offload: traced-missing	**0**	オフロード追跡（完了の主張）	宛先が特定できるのに、その宛先が実在しないもの。嘘の保証であり 1 件でも異常
+offload.untraceable	offload: untraceable	減少	オフロード追跡（完了の主張）	「別の箇所で」だけで場所が書かれていないもの。記述の質が上がれば減る
+offload.external	offload: 外部参照（解決不能）	—	オフロード追跡（完了の主張）	宛先がリポジトリ外にあり、文字列照合では実在確認できないもの。verified にも missing にも寄せない
+offload.notdebt	offload 候補のうち主張でない	—	オフロード追跡（完了の主張）	抽出候補のうち、完了の主張ではなかったもの。誤検出の量を可視化するための参考値
+todo.unreferenced	TODO 残存（参照なし）	減少	TODO（未完の宣言）	issue 番号等の参照が付いていない TODO / FIXME の数。この指標群の主役
+todo.dest.verified	TODO 参照なし: 文中の宛先が実在	—	TODO（未完の宣言）	参照は無いが本文から宛先が読み取れ、その宛先が実在したもの
+todo.dest.missing	TODO 参照なし: 文中の宛先が不在	**0**	TODO（未完の宣言）	本文から読める宛先が実在しないもの。追跡できない債務
+todo.dest.untraceable	TODO 参照なし: 宛先の記述なし	減少	TODO（未完の宣言）	宛先がどこにも書かれていない TODO。誰も追えない状態
+todo.dest.notdebt	TODO 検出のうち債務でない（語の言及）	—	TODO（未完の宣言）	マーカーの grep が拾った「TODO」という語の言及。債務ではないが、落とすと総数と内訳が食い違うので数える
+todo.referenced_open	TODO 参照付き（issue open）	—	TODO（未完の宣言）	参照先の issue が open な TODO。追跡されている状態なので基準は置かない
+todo.referenced_missing	TODO 参照付き（issue 不在）	**0**	TODO（未完の宣言）	参照先の issue 番号が存在しない TODO。参照が切れている
+todo.referenced_closed	TODO 参照付き（issue closed）	—	TODO（未完の宣言）	参照先が closed の TODO。コメントだけが残骸として残っている可能性
+todo.total	TODO 総数	—	TODO（未完の宣言）	マーカー（TODO / FIXME / XXX / HACK）の総ヒット数。書く習慣で動くため率の分母には使わない
+issues.stale	長期滞留 issue (>{HC_STALE_DAYS}d)	減少	issue 運用	{HC_STALE_DAYS} 日以上更新されていない open issue の数
+issues.no_milestone	milestone なし issue	減少	issue 運用	milestone が付いていない open issue の数。どの区切りで処理するか決まっていない量
+coverage.c0	coverage c0（行）	上昇	テスト網羅	既存の coverage 成果物から読んだ行網羅率。テストは実行しない
+coverage.c1	coverage c1（分岐）	上昇	テスト網羅	同・分岐網羅率。成果物に分岐情報が無ければ skipped
+coverage.c2	coverage c2（条件）	上昇	テスト網羅	条件網羅率。lcov / cobertura / jacoco は出力しないため通常 skipped（分岐率で代用しない）
+e2e.coverage	e2e 網羅度	上昇	テスト網羅	spec に宣言されたシナリオ数を分母、e2e から参照されているものを分子とした率。分母が取れなければ skipped
+spec.unconfirmed	spec-実装乖離（未確認 spec 項目）	減少	spec 整合	コードから観測して書かれ、人間が意図確認していない spec 項目の数。乖離の代理指標
+spec.missing_area	spec なし機能領域	減少	spec 整合	spec が書かれていない機能領域の数。機械的に定義できないため測らない（skipped）
+spec.unreflected	spec 未反映の実装変更	減少	spec 整合	実装済みだが spec に反映されていない変更の数。機械的に定義できないため測らない（skipped）
