@@ -12,7 +12,12 @@
     {
       "name": "light-review",
       "source": "./plugins/light-review",
-      "description": "Cognitive-load-light PR review. Starts from the PR's own intent and, for each spot, explains its function, the author's likely intent, the gap from the ideal, and the concrete impact of leaving it — while also stating why the OK spots are OK. Code-smell centric, no TAKT."
+      "description": "Cognitive-load-light PR review. Findings are written as an inverted pyramid — one-line conclusion, minimal evidence, the fix, the impact, what still needs checking — with the severity-swinging context embedded in the finding itself; the spots confirmed OK keep the full waterfall so the reasons for approval stay on record. Code-smell centric, no TAKT."
+    },
+    {
+      "name": "health-checkup",
+      "source": "./plugins/health-checkup",
+      "description": "Periodic repository health checkup. Counts — never blocks — the obligations offloaded during development: unresolved TODOs, \"guaranteed elsewhere\" claims classified as verified / missing / untraceable, stale and unmilestoned issues, coverage, and spec-implementation drift. An LLM only extracts where a claim points; scripts decide whether that place exists and append the numbers next to their baselines, leaving the diagnosis to humans."
     }
   ]
 }
