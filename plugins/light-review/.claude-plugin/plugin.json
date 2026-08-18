@@ -1,5 +1,5 @@
 {
   "name": "light-review",
   "description": "Cognitive-load-light PR review. Findings are written as an inverted pyramid (one-line conclusion, minimal evidence, the fix, the impact, what still needs checking) with the severity-swinging context embedded in the finding itself; the OK spots keep the full waterfall so the reasons for approval are on record. Code-smell centric, thin instructions, no TAKT.",
-  "version": "0.2.0"
+  "version": "0.3.0"
 }
