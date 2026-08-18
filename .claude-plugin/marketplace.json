@@ -18,6 +18,11 @@
       "name": "health-checkup",
       "source": "./plugins/health-checkup",
       "description": "Periodic repository health checkup. Counts — never blocks — the obligations offloaded during development: unresolved TODOs, \"guaranteed elsewhere\" claims classified as verified / missing / untraceable, stale and unmilestoned issues, coverage, and spec-implementation drift. An LLM only extracts where a claim points; scripts decide whether that place exists and append the numbers next to their baselines, leaving the diagnosis to humans."
+    },
+    {
+      "name": "draft-review-loop",
+      "source": "./plugins/draft-review-loop",
+      "description": "Orchestration loop that carries a codex-authored draft PR all the way to human-review-ready. It owns the ordering, the repetition and its ceilings, and the exit — not the review itself, which is delegated to light-review / isolated-review. Acceptance criteria are read thickly at the entrance and confirmed again at the exit, verification is placed immediately after every loop that changes code, and each repetition carries a bound plus an escalation target. One PR per invocation; the outer iteration belongs to /loop."
     }
   ]
 }
