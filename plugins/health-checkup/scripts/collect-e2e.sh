@@ -65,28 +65,56 @@ if [ -z "$E2ES" ]; then
   exit 0
 fi
 
-covered=0
-uncovered=""
-while IFS= read -r title; do
-  [ -n "$title" ] || continue
-  slug="$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g')"
-  # shellcheck disable=SC2086
-  if (cd "$HC_ROOT" && grep -rqiF -- "$title" $E2ES 2>/dev/null) \
-    || { [ -n "$slug" ] && (cd "$HC_ROOT" && grep -rqiF -- "$slug" $E2ES 2>/dev/null); }; then
-    covered=$(( covered + 1 ))
-  else
-    uncovered="${uncovered}| ${title} |"$'\n'
-  fi
-done <<< "$TITLES"
+# One awk pass over the e2e tree, not two greps per scenario: a repo with a few
+# hundred declared scenarios would otherwise spawn a thousand processes, which on
+# Windows alone costs minutes.
+E2E_FILES="$(cd "$HC_ROOT" && find $E2ES -type f \
+  \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.mjs' \
+     -o -name '*.py' -o -name '*.rb' -o -name '*.go' -o -name '*.java' -o -name '*.feature' \
+     -o -name '*.json' -o -name '*.yaml' -o -name '*.yml' -o -name '*.md' \) \
+  -not -path '*/node_modules/*' 2>/dev/null | head -5000)"
 
-RATE="$(awk -v c="$covered" -v t="$TOTAL" 'BEGIN { printf "%.0f%%", (c * 100) / t }')"
-hc_emit "e2e.coverage" "$RATE ($covered/$TOTAL)"
+if [ -z "$E2E_FILES" ]; then
+  hc_skip "e2e.coverage" "$E2ES 配下にテストファイルが見つからない。分子が不定のため率を出さない"
+  exit 0
+fi
 
-if [ -n "$DETAIL_OUT" ] && [ -n "$uncovered" ]; then
+UNCOVERED_TMP="$(mktemp)"
+trap 'rm -f "$UNCOVERED_TMP"' EXIT
+
+COVERED="$(cd "$HC_ROOT" && printf '%s\n' "$TITLES" \
+  | awk -v files="$E2E_FILES" -v out="$UNCOVERED_TMP" '
+    function slugify(s) { s = tolower(s); gsub(/[^a-z0-9]+/, "-", s); gsub(/^-|-$/, "", s); return s }
+    { n++; title[n] = $0; needle[n] = tolower($0); slug[n] = slugify($0) }
+    END {
+      nf = split(files, f, /\n/)
+      for (i = 1; i <= nf; i++) {
+        if (f[i] == "") continue
+        while ((getline line < f[i]) > 0) {
+          line = tolower(line)
+          for (k = 1; k <= n; k++) {
+            if (hit[k]) continue
+            if (index(line, needle[k]) || (slug[k] != "" && index(line, slug[k]))) hit[k] = 1
+          }
+        }
+        close(f[i])
+      }
+      c = 0
+      for (k = 1; k <= n; k++) {
+        if (hit[k]) c++
+        else print "| " title[k] " |" > out
+      }
+      print c
+    }')"
+
+RATE="$(awk -v c="$COVERED" -v t="$TOTAL" 'BEGIN { printf "%.0f%%", (c * 100) / t }')"
+hc_emit "e2e.coverage" "$RATE ($COVERED/$TOTAL)"
+
+if [ -n "$DETAIL_OUT" ] && [ -s "$UNCOVERED_TMP" ]; then
   {
     printf '### 詳細: e2e 未実装の宣言済みシナリオ\n'
     printf '| シナリオ |\n'
     printf '|---|\n'
-    printf '%s' "$uncovered"
+    cat "$UNCOVERED_TMP"
   } > "$DETAIL_OUT"
 fi
