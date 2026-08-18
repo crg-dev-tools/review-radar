@@ -132,10 +132,24 @@ hc_git_grep() {
 }
 
 # Repository in owner/name form, for gh calls. Empty when it cannot be resolved.
+#
+# Resolved from HC_ROOT's own remote, never from the current directory: the
+# checkup may be pointed at a repository other than the one the session was
+# started in, and asking `gh` where it is would then answer for the wrong repo —
+# silently reporting another project's issues.
 hc_gh_repo() {
   [ -n "${HC_GH_REPO:-}" ] && { printf '%s\n' "$HC_GH_REPO"; return 0; }
+  local url slug
+  url="$(git -C "$HC_ROOT" remote get-url origin 2>/dev/null || true)"
+  if [ -n "$url" ]; then
+    slug="${url%.git}"
+    slug="${slug#*github.com[:/]}"
+    case "$slug" in
+      */*) printf '%s\n' "${slug#*://}"; return 0 ;;
+    esac
+  fi
   hc_have gh || return 0
-  gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true
+  (cd "$HC_ROOT" 2>/dev/null && gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) || true
 }
 
 hc_gh_ready() {
