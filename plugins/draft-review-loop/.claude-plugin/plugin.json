@@ -1,0 +1,5 @@
+{
+  "name": "draft-review-loop",
+  "description": "Orchestration loop that carries a codex-authored draft PR all the way to human-review-ready. Runs process-compliance check, self-review-and-fix rounds, verification, codex review rounds with every comment answered and closed, and a final acceptance-criteria check before undrafting. Handles exactly one PR per invocation; the outer iteration belongs to /loop.",
+  "version": "0.1.0"
+}
