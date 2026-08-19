@@ -1,13 +1,16 @@
 ---
 name: worker-fleet-loop
-description: Claude worker セッションを並列に走らせ続ける supervisor 側の運用ループ。1 tick で全 worker を 1 巡し、承認待ちに答え（マージだけは人に回す）、止まっているものを突き、空いたスロットに issue から次の仕事を投入する。実装は openspec-workflow（request-create / request-execute / request-fixup）に、レビューは別 loop に委譲する。「worker を回して」「フリートを見て」「並列で開発を進めて」等で使う。周回は /loop 側の責務。
+description: Claude worker セッションを並列に走らせ続ける supervisor 側の運用ループ。1 tick で全 worker を 1 巡し、承認待ちに答え（マージだけは人に回す）、止まっているものを突き、空いたスロットに次のレーンを投入する。容量は毎 tick 測り直す。レーンの中身は issue-to-review-ready、実装は openspec-workflow、レビューは pr-loop に委譲する。「worker を並列で回して」「フリートを見て」等で使う。1 本ずつでよいなら issue-to-review-ready を使う。周回は /loop 側の責務。
 ---
 
 # worker-fleet-loop
 
-Claude の **worker セッション**を並列に走らせ、**issue → request → 実装 → PR → レビュー対応**を回し続ける、supervisor 側の運用ループ。
+Claude の **worker セッション**を**並列に**走らせ続ける、supervisor 側の運用ループ。
 
-実装の中身は書かない。中身は `openspec-workflow`（`request-create` / `request-execute` / `request-fixup`）に、PR のレビューは `pr-loop` に委譲する。この skill が持つのは**容量・分類・介入・投入**である。
+**レーンの中身は `issue-to-review-ready` が持つ。** この skill が持つのは**容量・分類・介入・投入**、つまり**複数レーンの管理**だけである。1 レーンをどう通すか（Status 遷移・worker 起動・実装・レビュー解消・draft 解除）は**あちらを正とし、ここでは繰り返さない**。
+
+- **まず `issue-to-review-ready` で 1 本通せるようにする。** 直列で通らないものは並列でも通らない。
+- 実装の中身は `openspec-workflow`、PR のレビューは `pr-loop` に委譲する。
 
 ## なぜ codex ではなく Claude worker か
 
@@ -131,17 +134,15 @@ write_terminal(id, "y\r")     # または選択肢番号 "1\r"
 
 #### 3-B. 完了したら次のフェーズへ
 
-`phase` に応じて投げるものを変える。
+**レーンの中身は `issue-to-review-ready` が持っている。** phase の意味・各 phase で投げるもの・完了の確認方法は**あちらを正とし、ここでは繰り返さない**（2 箇所に書くと、片方を直したときもう片方が古くなる）。
 
-| phase | 次にやること |
+| phase | この skill がやること |
 |---|---|
-| `creating` | worktree ができたら `submit_prompt("/request-execute")` → `executing` |
-| `executing` | PR が上がったか確認（`gh pr list --head <branch>`）。上がっていれば `pr-open` |
-| `pr-open` | **人レビュー待ち。** 指摘が付いたら `submit_prompt("/request-fixup")` → `fixing` |
-| `fixing` | 対応が終わったら `pr-open` に戻す |
-| `done` | PR がマージ済み。**worker を閉じてスロットを解放**する（後片付けは supervisor が `/request-merge`） |
+| `creating` 〜 `fixing` | `issue-to-review-ready` の対応する手順を進める |
+| `done` | **worker を閉じてスロットを解放**する（後片付けは人が `/request-merge`） |
 
 - **`executing` が終わったのに PR が無い場合は完了ではない。** エスカレーションする（実装が途中で終わっている）。
+- **`/request-create` は worker に投げない。** 対話必須で、`y` では抜けられない（理由は `issue-to-review-ready` の手順 3）。**request と worktree は supervisor 側で作ってから worker を立てる。**
 
 #### 3-C. stuck は 1 回だけ突く
 
@@ -167,11 +168,7 @@ gh issue list --state open --label ready --json number,title,createdAt,milestone
 
 - 選び方: **ラベル（`ready` 等）で人が明示したもの → `createdAt` の古い順**。ラベル運用が無いリポジトリでは、**人に選ばせる**（勝手に優先度を決めない）。
 - **既に走っている request と同じファイル群を触る issue は選ばない。** 並列で衝突する。判断がつかなければ 1 本ずつに落とす。
-- 起動の順序:
-  1. supervisor 側で `/request-create`（issue 番号を渡す）→ worktree ができる
-  2. `create_session(cwd: <worktree>, role: "worker", groupId: <fleet>, name: <slug>)`
-  3. `write_terminal(id, "claude\r")` で Claude を起動し、`get_status` が `idle` になるまで待つ
-  4. `submit_prompt(id, "/request-execute")`
+- **起動の順序は `issue-to-review-ready` の手順 2〜3-b と同じ。** Status を先に動かし、**supervisor 側で `/request-create` の対話を済ませてから** worker を立て、cwd と `/codex-draft-review` の存在を確認して `/request-execute` を投げる。**ここでは繰り返さない。**
 - **1 tick に 1 本まで**にするのは、起動直後の worker は最も手がかかるため。まとめて立てると、次の tick で全部が同時に承認待ちになる。
 
 ### 5. スロットが足りないときは、terminal を閉じて worktree を残す
