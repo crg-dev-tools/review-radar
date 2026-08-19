@@ -1,33 +1,46 @@
-# draft-review-loop
+# pr-loop
 
-**自動生成された PR を、溜めずに列から外す**ための**オーケストレーション**プラグイン。
+**PR の列を進め続ける**ための**オーケストレーション**プラグイン。
 
-レビューの中身は書きません。中身は [`light-review`](../light-review) / [`isolated-review`](../isolated-review) に委譲し、このプラグインが持つのは**順序・反復・打ち切り・出口**です。
+レビューの中身は書きません。中身は [`light-review`](../light-review) / [`isolated-review`](../isolated-review) に委譲し、このプラグインが持つのは**順序・反復・打ち切り・出口**です。**`gh` 以外に依存しません。**
 
 ## 収録 skill
 
-| skill | 説明 |
-|---|---|
-| `codex-draft-review` | codex が書いた **draft PR** を人レビュー待ちまで運ぶ。プロセス準拠チェック → 自己レビューと対応の反復 → 検証 → codex レビュー依頼と全コメントの返信・クローズ → 受入要件の最終確認 → draft 解除。**マージはしない。** |
-| `bot-pr-resolve` | **Dependabot / Renovate / セキュリティ更新**の PR を解消する。経路の分類 → 変更の実体確認 → CI 確認 → 安全基準の判定 → マージ / 人に渡す / close。**基準を全て満たしたときだけマージする。** |
+PR が止まる場所は 4 つあり、**止まる理由が違えば打つ手も違います**。1 つの大きな skill にすると、軽い作業に重い手順のコストを払うことになります。
 
-どちらも次を共有します。
+| skill | 担当する詰まり | 出口 |
+|---|---|---|
+| `codex-draft-review` | codex の **draft PR** がレビューを回しきれない | draft 解除して人レビュー待ち。**マージしない** |
+| `bot-pr-resolve` | **Dependabot / Renovate / セキュリティ更新**が溜まる | 安全基準を全て満たせばマージ、でなければ人に渡す |
+| `merge-ready-sweep` | **approve 済みなのにマージされていない** | 基準がまだ有効ならマージ |
+| `review-wait-resolve` | **人待ちのまま止まっている** | 理由別に一手（アサイン / 催促 / 作者に返す / 畳む判断） |
+
+```text
+        codex draft ──▶ codex-draft-review ──┐
+                                             ├──▶ review-wait-resolve ──▶ merge-ready-sweep ──▶ merged
+        人が書いた PR ───────────────────────┘        （人待ちを動かす）      （承認を実行する）
+
+        bot PR ──────▶ bot-pr-resolve ──▶ 基準を満たせば直接マージ／満たさなければ人へ
+```
+
+4 つとも次を共有します。
 
 - **1 呼び出し = 1 PR。** 「次の PR を拾い直す」周回は持たない。連続処理は `/loop` で外から回す。再開単位が PR 単位になり、失敗しても途中から拾えます
 - **打ち切れないループを書かない。** 反復には「抜ける条件」「上限」「上限に達したときの行き先」を必ず持たせる
-- **反復回数はファイルに書く。** セッション内変数だと compact で消えてエスカレーション判定が壊れます。`git rev-parse --git-dir` 配下（`draft-review-loop.json` / `bot-pr-loop.json`）に置くので、コミットされず PR にも出ません
+- **反復回数はファイルに書く。** セッション内変数だと compact で消えてエスカレーション判定が壊れます。`git rev-parse --git-dir` 配下（`draft-review-loop.json` / `bot-pr-loop.json` / `pr-nudge.json`）に置くので、コミットされず PR にも出ません
 
-### 2 つの違い
+### 4 つの違い
 
-同じ「自動生成された PR」でも、**1 件の重さが違えば必要な手順も違います**。軽い PR を重い手順で扱うと、手順のコストが中身のコストを上回り、結局は全部放置されます。
+**1 件の重さが違えば必要な手順も違います。** 軽い PR を重い手順で扱うと、手順のコストが中身のコストを上回り、結局は全部放置されます。
 
-| | `codex-draft-review` | `bot-pr-resolve` |
-|---|---|---|
-| 対象 | codex の draft PR（機能実装） | 依存更新・セキュリティ更新 |
-| 1 件の重さ | 重い（レビューが要る） | 軽い（大半は分類だけで済む） |
-| 中心の作業 | レビューと対応の反復 | 分類と安全基準の判定 |
-| 出口 | draft 解除して人レビュー待ち | 基準を満たせばマージ、満たさなければ人に渡す |
-| マージ | しない（人が決める） | **する**（基準を全て満たしたときのみ） |
+| | `codex-draft-review` | `bot-pr-resolve` | `merge-ready-sweep` | `review-wait-resolve` |
+|---|---|---|---|---|
+| 対象 | codex の draft PR | 依存・セキュリティ更新 | approve 済み | 人待ちで止まったもの |
+| 1 件の重さ | 重い（レビューが要る） | 軽い（大半は分類だけ） | **軽い（判断は済んでいる）** | 中（理由の特定が要る） |
+| 中心の作業 | レビューと対応の反復 | 分類と安全基準の判定 | 承認がまだ有効かの確認 | 止まっている理由の分類 |
+| マージ | しない | **する**（安全基準） | **する**（人の approve） | しない |
+
+**`merge-ready-sweep` と `bot-pr-resolve` はどちらもマージしますが、権威が違います。** 前者は**人の approve**、後者は**安全基準**です。人の approve が無い変更を基準だけでマージしてよいのは、差分がロックファイルに閉じているときだけです。
 
 ## codex-draft-review — 何のためか
 
@@ -114,29 +127,66 @@ codex に draft を量産させる運用では、ボトルネックが「レビ�
 - **bot PR の CI failure を自分で直しに行かない。** bot が force-push した時点で消える
 - **マージしたら残りに rebase を促してから終わる。** 促さないと次の呼び出しが conflict から始まる
 
+## merge-ready-sweep — 何のためか
+
+approve 済みなのにマージされていない PR は、**放置されていることに誰も痛みを感じない**種類の滞留です。作者は「レビューは通った」と思い、レビュアーは「自分の仕事は終わった」と思っている。**誰も見ていない状態が、最も長く続きます。**
+
+そして時間が経つほど、**base が進んで論理的な衝突が入り**、**approve が実態から離れます**（approve 後に push されていれば、その承認は現在のコードを見ていない）。
+
+### 決め事
+
+- **基準は推測せず、ブランチ保護から読む**（`required_approving_review_count` / CODEOWNERS / 必須 check）。読めなければ代替基準（approve 1 件以上 + checks 全 green）に落ち、**代替を使ったことを報告に書く**
+- **approve は commit に紐づく。** approve 後に push があれば、その承認は現在のコードに対するものではない。**残っている approve を有効な approve と読まない**
+- **base が古ければマージしない。** `update-branch` して**次の tick で緑を見てから**判定する
+- **hold / do-not-merge ラベル・auto-merge 有効・リリース PR は触らない**
+
+## review-wait-resolve — 何のためか
+
+`codex-draft-review` の出口も `bot-pr-resolve` の出口 B も「人に渡す」です。**渡した先には受け皿がありません。** 上流を速くするほど、ここに積み上がります。
+
+- **止まっている理由が違うのに、見た目が同じ。** reviewer が居ないのと、居るが見ていないのと、変更要求のまま作者が止まっているのは、一覧では全部「open のまま」に見える
+- **催促は繰り返すと効かなくなる。** 3 回目のコメントは誰も読まない。**1 回しか効かない手を無計画に使い切らない**
+- **腐った PR が列を詰まらせる。** conflict と CI 落ちで数週間経った PR は、レビューしても意味がない
+
+### 5 つの分類と一手
+
+| 理由 | 見分け方 | 一手 |
+|---|---|---|
+| reviewer が居ない | `reviewRequests` も `assignees` も空 | CODEOWNERS → 直近のコミッタの順でアサイン |
+| レビュー未着手 | reviewer は居るが review 0 件・**2 営業日以上** | **1 回だけ**突く（何の PR か・どれくらいで読めるか・何日待っているか） |
+| 変更要求のまま放置 | `CHANGES_REQUESTED` 後に作者の push が無く **1 週間以上** | 作者に返す（bot なら codex-draft-review、worker なら worker-fleet の担当） |
+| 再依頼されていない | 作者の push はあるが re-request されていない | 再レビュー依頼。**これは催促に数えない**（突く相手が違う） |
+| 腐敗 | conflict / 必須 check 赤のまま **3 週間以上** | 畳む判断を人に渡す。**勝手に close しない** |
+
+**滞留は `updatedAt` で測りません。** 自動コメントが付くだけで動くので、その状態になった時刻で測ります。
+
 ## 前提
 
-- `gh` CLI。private repo では MCP GitHub が 404 になるため `gh api` を使います
-- `codex-draft-review` … 対象リポジトリが **openspec-workflow を採用していること**。採用していないリポジトリでは手順 2・3 の根拠が無いため対象外です（`light-code-review` を単発で使ってください）。修正は worktree 側で行い、可能なら `request-fixup` に委譲します
+- `gh` CLI。private repo では MCP GitHub が 404 になるため `gh api` を使います。**これ以外の依存はありません**
+- `codex-draft-review` … 対象リポジトリが **openspec-workflow を採用していること**。採用していないリポジトリでは手順 2・3 の根拠が無いため対象外です（`light-code-review` を単発で使ってください）
 - `bot-pr-resolve` … **PR で CI が回ること**。回らないリポジトリでは安全基準 3 が空手形になるので、手順 4 をローカル検証に置き換えます
+- `merge-ready-sweep` … ブランチ保護の**読み取り権限**。無い場合は代替基準に落ちます
 
 ## 使い方
 
 ```text
 /codex-draft-review                  # draft PR を 1 件、人レビュー待ちまで運ぶ
-/loop /codex-draft-review            # draft が尽きるまで連続処理（間隔省略で自己ペーシング）
-
 /bot-pr-resolve                      # 自動 PR を 1 件、列から外すまで解消する
-/loop /bot-pr-resolve                # bot PR が尽きるまで連続処理
+/merge-ready-sweep                   # approve 済みを 1 件マージする
+/review-wait-resolve                 # 止まっている PR を 1 件動かす
+
+/loop /merge-ready-sweep             # 尽きるまで連続処理（間隔省略で自己ペーシング）
 ```
 
-`codex-draft-review` の手順 7（codex 待ち）や `bot-pr-resolve` の rebase 待ちがセッションを長く占有する場合は、そこで中断して `/loop` の次の tick に回せます（state ファイルがあるため再開できます）。
+`codex-draft-review` の手順 7（codex 待ち）、`bot-pr-resolve` の rebase 待ち、`merge-ready-sweep` の `update-branch` 後の CI 待ちは、いずれもそこで中断して `/loop` の次の tick に回せます（state ファイルがあるため再開できます）。
 
 ## 他プラグインとの関係
 
-| | draft-review-loop | light-review | isolated-review |
-|---|---|---|---|
-| 役割 | 回し方（運用ループ） | レビューのやり方（説明役） | レビューのやり方（敵対的ゲート） |
-| 粒度 | PR 1 件の全工程 | 1 回のレビュー | 1 回のレビュー |
-| コード変更 | する（対応まで） | しない | しない |
-| 依存 | `gh`（+ `codex-draft-review` は openspec-workflow） | `gh` | TAKT |
+| | pr-loop | worker-fleet | light-review | isolated-review |
+|---|---|---|---|---|
+| 役割 | PR の列を進める | worker を回す（作らせる側） | レビューのやり方（説明役） | レビューのやり方（敵対的ゲート） |
+| 粒度 | PR 1 件 | 1 tick = 全 worker | 1 回のレビュー | 1 回のレビュー |
+| マージ | する（承認済み・安全基準） | しない | しない | しない |
+| 依存 | **`gh` のみ** | bash-editor MCP・openspec-workflow | `gh` | TAKT |
+
+**`worker-fleet` を別プラグインにしているのは依存が違うから**です（bash-editor MCP が要る）。`pr-loop` の 4 skill は `gh` だけで動くので、分ける理由がありません。

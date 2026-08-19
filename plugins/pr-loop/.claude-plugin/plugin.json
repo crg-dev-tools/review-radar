@@ -1,0 +1,5 @@
+{
+  "name": "pr-loop",
+  "description": "Loops that keep the PR queue moving. codex-draft-review carries a codex-authored draft PR to human-review-ready and never merges. bot-pr-resolve routes a Dependabot / Renovate / security PR by class and merges only when every safety criterion holds. merge-ready-sweep merges what a human already approved, reading the bar from branch protection rather than assuming one. review-wait-resolve takes a PR that is stuck waiting on a human and moves it — assigning a reviewer, nudging once, returning it to the author, or handing the rot to a person to decide. One PR per invocation; the outer iteration belongs to /loop. Needs nothing but gh.",
+  "version": "0.4.0"
+}
