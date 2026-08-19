@@ -23,6 +23,11 @@
       "name": "draft-review-loop",
       "source": "./plugins/draft-review-loop",
       "description": "Orchestration loops that carry automatically generated PRs out of the queue. They own the ordering, the repetition and its ceilings, and the exit — not the review itself, which is delegated to light-review / isolated-review. codex-draft-review takes a codex-authored draft PR to human-review-ready: acceptance criteria read thickly at the entrance and confirmed at the exit, verification placed immediately after every loop that changes code, and no merge — the verdict stays with the human. bot-pr-resolve takes a Dependabot / Renovate / security PR off the queue: classify the route, inspect the actual change and CI, and merge only when every safety criterion holds, otherwise hand it over with the blocking criterion named. One PR per invocation; the outer iteration belongs to /loop."
+    },
+    {
+      "name": "worker-fleet",
+      "source": "./plugins/worker-fleet",
+      "description": "Supervisor-side loop that keeps a fleet of Claude worker sessions busy. One tick sweeps every worker: it answers approval prompts (everything except merge, which goes to the human), nudges the ones that have gone silent, advances the ones that finished, and starts one new worker in a free slot from a labeled issue. Capacity is re-measured every tick from free memory and CPU rather than fixed at startup, and silence is classified rather than assumed to mean done. Workers run Claude — not codex — because the work happens on top of openspec-workflow's delta specs, tasks, and fixup flow. The implementation belongs to openspec-workflow and the review to draft-review-loop; this plugin owns capacity, classification, intervention, and dispatch."
     }
   ]
 }
