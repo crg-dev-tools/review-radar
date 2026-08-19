@@ -52,7 +52,8 @@ worker が実行するのは `/request-execute` で、**delta spec・`tasks.md`�
 ## 前提
 
 - **bash-editor MCP**（`get_status` / `get_output` / `create_session` / `submit_prompt` / `write_terminal` / `delete_session`）
-- **supervisor-mode** が有効で、**main worktree から起動すること**（worktree の中からは起動しない）
+- **main worktree から起動すること**（worktree の中からは起動しない）
+- **`supervisor-mode` は任意。** あれば hooks が main worktree での編集・commit・PR 作成をブロックしますが、**動作条件ではありません**。無い環境では「この skill を回している間、自分でコードを書かない」を決め事として守ります（**強制が無い分、破ってもエラーになりません**）
 - 対象リポジトリが **openspec-workflow を採用していること**
 - `gh` CLI
 

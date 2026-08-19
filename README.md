@@ -26,7 +26,7 @@ Claude Code 用のコードレビュー プラグインマーケットプレイ�
 | [`light-review`](plugins/light-review) | PR の意図から前提を滝で下ろし、コードスメル中心で説明ファーストなレビューを生成する。指摘は逆ピラミッド、OK の理由も残す。（要 `gh`） |
 | [`health-checkup`](plugins/health-checkup) | オフロードの残存・長期滞留 issue・カバレッジ・spec 乖離を数えて `health.md` に追記する。LLM は抽出まで、実在確認と集計は script。（要 `gh` / bash） |
 | [`pr-loop`](plugins/pr-loop) | PR の列を 1 呼び出し 1 件ずつ進める。`codex-draft-review`（draft → 人レビュー待ち）/ `bot-pr-resolve`（依存・セキュリティ更新）/ `merge-ready-sweep`（approve 済みをマージ）/ `review-wait-resolve`（人待ちを理由別に動かす）。（要 `gh`） |
-| [`worker-fleet`](plugins/worker-fleet) | Claude の worker セッションを並列に走らせ続ける。1 tick で全 worker を巡回し、承認に答え（**マージだけは人**）、止まったものを突き、空きスロットに issue から 1 本投入する。容量は毎 tick 測り直す。（要 bash-editor MCP / supervisor-mode / openspec-workflow） |
+| [`worker-fleet`](plugins/worker-fleet) | Claude の worker セッションを並列に走らせ続ける。1 tick で全 worker を巡回し、承認に答え（**マージだけは人**）、止まったものを突き、空きスロットに issue から 1 本投入する。容量は毎 tick 測り直す。（要 bash-editor MCP / openspec-workflow） |
 
 ## 前提
 
@@ -34,7 +34,7 @@ Claude Code 用のコードレビュー プラグインマーケットプレイ�
 - `light-review` … `gh` CLI
 - `health-checkup` … `gh` CLI・bash（Windows では Git Bash / WSL）
 - `pr-loop` … `gh` CLI のみ（`codex-draft-review` は加えて、対象リポジトリが openspec-workflow を採用していること）
-- `worker-fleet` … bash-editor MCP・`supervisor-mode`・openspec-workflow・`gh` CLI
+- `worker-fleet` … bash-editor MCP・openspec-workflow・`gh` CLI（`supervisor-mode` は任意）
 
 ## Install
 
