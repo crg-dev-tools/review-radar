@@ -40,7 +40,11 @@ worker が実行するのは `/request-execute` であり、**delta spec・`task
 ## 前提
 
 - **bash-editor MCP** が使えること。`get_status` / `get_output` / `create_session` / `submit_prompt` / `write_terminal` / `delete_session` を使う。
-- **supervisor-mode** が有効で、**main worktree にいること**。supervisor は実装に手を出さない（hooks が編集・commit・PR 作成をブロックする）。**worktree の中からこの skill を起動しない。**
+- **main worktree から起動すること。** worktree の中からこの skill を起動しない（自分が worker になってしまう）。
+- **`supervisor-mode` は任意。** あれば hooks が main worktree での編集・commit・PR 作成をブロックするが、**この skill の動作条件ではない**。無い（または無効な）環境では、次を**自分の決め事として守る**。
+  - **この skill を回している間、自分でコードを書かない。** 実装は worker の仕事で、supervisor が手を出すと**どの変更が誰のものか分からなくなり、worker の PR に無関係な差分が混ざる**
+  - 直したくなったら、**worker に投げるか、request として積む**
+  - **強制が無い分、破ってもエラーにならない。** だからここに書いてある
 - 対象リポジトリが **openspec-workflow を採用していること**。
 - `gh` CLI。
 

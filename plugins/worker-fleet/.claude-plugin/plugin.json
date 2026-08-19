@@ -1,5 +1,5 @@
 {
   "name": "worker-fleet",
   "description": "Supervisor-side loop that keeps a fleet of Claude worker sessions busy. One tick sweeps every worker: it answers approval prompts (everything except merge), nudges the ones that have gone silent, advances the ones that finished, and starts one new worker in a free slot from a labeled issue. Capacity is re-measured every tick from free memory and CPU rather than fixed at startup. The implementation itself belongs to openspec-workflow and the review to pr-loop; this plugin owns capacity, classification, intervention, and dispatch.",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }
