@@ -2,7 +2,7 @@
 
 **Claude の worker セッションを並列に走らせ続ける** supervisor 側のオーケストレーションプラグイン。
 
-実装の中身は書きません。中身は `openspec-workflow`（`request-create` / `request-execute` / `request-fixup`）に、PR のレビューは [`draft-review-loop`](../draft-review-loop) に委譲し、このプラグインが持つのは**容量・分類・介入・投入**です。
+実装の中身は書きません。中身は `openspec-workflow`（`request-create` / `request-execute` / `request-fixup`）に、PR のレビューは [`pr-loop`](../pr-loop) に委譲し、このプラグインが持つのは**容量・分類・介入・投入**です。
 
 ## 収録 skill
 

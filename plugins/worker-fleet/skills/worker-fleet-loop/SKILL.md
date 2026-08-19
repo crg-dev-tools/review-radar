@@ -7,7 +7,7 @@ description: Claude worker セッションを並列に走らせ続ける supervi
 
 Claude の **worker セッション**を並列に走らせ、**issue → request → 実装 → PR → レビュー対応**を回し続ける、supervisor 側の運用ループ。
 
-実装の中身は書かない。中身は `openspec-workflow`（`request-create` / `request-execute` / `request-fixup`）に、PR のレビューは `draft-review-loop` に委譲する。この skill が持つのは**容量・分類・介入・投入**である。
+実装の中身は書かない。中身は `openspec-workflow`（`request-create` / `request-execute` / `request-fixup`）に、PR のレビューは `pr-loop` に委譲する。この skill が持つのは**容量・分類・介入・投入**である。
 
 ## なぜ codex ではなく Claude worker か
 
@@ -214,6 +214,6 @@ fleet 3/3 稼働（#128 executing / #131 pr-open / #134 fixing）｜承認 2 件
 
 - **マージ**。この skill の全ての自動応答はマージの手前で止まる。
 - **request の中身**（設計・実装・検証）。`openspec-workflow` の責務。
-- **PR のレビュー**。`draft-review-loop` / `light-review` の責務。
+- **PR のレビュー**。`pr-loop` / `light-review` の責務。
 - **後片付け**（`/request-merge`）。マージが人の判断である以上、その直後の片付けも人が起動する。
 - **issue の優先度づけ。** ラベルで人が示したものに従う。示されていなければ人に聞く。

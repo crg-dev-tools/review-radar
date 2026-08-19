@@ -1,5 +1,0 @@
-{
-  "name": "draft-review-loop",
-  "description": "Orchestration loops that carry automatically generated PRs out of the queue. codex-draft-review runs a codex-authored draft PR through process-compliance checks, self-review rounds, verification, codex review rounds with every comment answered, and a final acceptance-criteria check before undrafting — it never merges. bot-pr-resolve routes a Dependabot / Renovate / security PR by class, inspects the actual change and CI, and merges only when every safety criterion holds, otherwise handing it to a human with the blocking criterion named. One PR per invocation; the outer iteration belongs to /loop.",
-  "version": "0.3.0"
-}
