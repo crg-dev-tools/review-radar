@@ -6,7 +6,7 @@ Claude Code 用のコードレビュー プラグインマーケットプレイ�
 - **ライト**（`light-review`）… **認知負荷を下げた PR レビュー**。指摘を逆ピラミッド（場所 1 行 → 結論 1 文 → 最小根拠 → 直し方 → 影響 → 処分）で書き、重要度を左右する前提を指摘の中に埋め込む。処分まで書いて 1 件完成。OK だった箇所は理由を厚く残す。TAKT 不要の説明役。
 - **健診**（`health-checkup`）… **リポジトリ全体・期間の定期健診**。開発中にオフロードされた責務（TODO・「別の箇所で保障」等）の残存とトレース状況を数えて `health.md` に追記する。block も診断もしない計器。
 - **ループ**（`pr-loop`）… **PR の列を進め続ける運用ループ**。codex の draft PR を人レビュー待ちまで運び、依存・セキュリティ更新を基準で捌き、approve 済みをマージし、人待ちで止まったものを動かす。レビューの中身は書かず、順序・反復・打ち切り・出口だけを持つ（中身はフル / ライトに委譲）。
-- **フリート**（`worker-fleet`）… **Claude の worker を立てて開発を回し続ける** supervisor 側のループ。Ready の issue を 1 件掴んで人レビュー待ちの PR にするまで通し切り、次の issue へ進む（並列にしたくなったらレーン管理の skill に乗せる）。実装は openspec-workflow に委譲する。
+- **フリート**（`worker-fleet`）… **Claude の worker を立てて開発を回し続ける** supervisor 側のループ。人が居るうちに issue を「無人で着手できる」状態にしておき、Ready の issue を 1 件ずつ人レビュー待ちの PR にするまで通し切る（並列にしたくなったらレーン管理の skill に乗せる）。実装は openspec-workflow に委譲する。
 
 レビューは **PR 単位**で捕まえ、健診は **PR をまたいで累積したもの**を捕まえます（軸が直交します）。2 つのループはその上で、**PR を作らせる側**と**回しきる側**を担います。
 
@@ -26,7 +26,7 @@ Claude Code 用のコードレビュー プラグインマーケットプレイ�
 | [`light-review`](plugins/light-review) | PR の意図から前提を滝で下ろし、コードスメル中心で説明ファーストなレビューを生成する。指摘は逆ピラミッド、OK の理由も残す。（要 `gh`） |
 | [`health-checkup`](plugins/health-checkup) | オフロードの残存・長期滞留 issue・カバレッジ・spec 乖離を数えて `health.md` に追記する。LLM は抽出まで、実在確認と集計は script。（要 `gh` / bash） |
 | [`pr-loop`](plugins/pr-loop) | PR の列を 1 呼び出し 1 件ずつ進める。`codex-draft-review`（draft → 人レビュー待ち）/ `bot-pr-resolve`（依存・セキュリティ更新）/ `merge-ready-sweep`（approve 済みをマージ）/ `review-wait-resolve`（人待ちを理由別に動かす）。（要 `gh`） |
-| [`worker-fleet`](plugins/worker-fleet) | Claude の worker を立てて開発を回す。`issue-to-review-ready`（Ready の issue → In progress → 実装 → draft PR → codex レビュー解消 → draft 解除 → 次へ）と `worker-fleet-loop`（複数レーンの巡回・介入・投入）。承認は**マージだけ人**。（要 bash-editor MCP / openspec-workflow） |
+| [`worker-fleet`](plugins/worker-fleet) | Claude の worker を立てて開発を回す。`issue-ready-prep`（人が居るうちに base ブランチ等を決めて issue に書く）→ `issue-to-review-ready`（Ready の issue を無人で人レビュー待ちまで）→ `worker-fleet-loop`（並列にするときのレーン管理）。承認は**マージだけ人**。（要 bash-editor MCP / openspec-workflow） |
 
 ## 前提
 
@@ -92,7 +92,8 @@ plugins/
   worker-fleet/           # フリート：Claude worker を並列に走らせ続ける supervisor 側のループ
     .claude-plugin/plugin.json
     skills/
-      issue-to-review-ready/SKILL.md # Ready の issue 1 件を人レビュー待ちまで通す
+      issue-ready-prep/SKILL.md      # Ready に上げる前に base ブランチ等を人と決めて issue に書く
+      issue-to-review-ready/SKILL.md # Ready の issue 1 件を人レビュー待ちまで通す（無人）
       worker-fleet-loop/SKILL.md     # 1 tick = 全 worker 巡回（承認・stuck・投入）
     README.md
 ```

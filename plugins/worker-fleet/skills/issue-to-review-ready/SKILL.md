@@ -1,6 +1,6 @@
 ---
 name: issue-to-review-ready
-description: Projects の Status が Ready の issue を 1 件掴み、In progress に移し、worker terminal を 1 本立てて openspec-workflow を回し、draft PR を出し、codex レビューを解消し、draft を解除して Status を進め、次の issue へ進む直列パイプライン。1 サイクルを通し切ってから次に行く。落ちたときは Status を必ず戻す。「issue を回して」「ready から流して」「開発を回し続けて」等で使う。
+description: issue-ready-prep で準備済みの Ready な issue を 1 件掴み、In progress に移し、worker terminal を 1 本立てて openspec-workflow を回し、draft PR を出し、codex レビューを解消し、draft を解除して Status を進め、次の issue へ進む直列パイプライン。1 サイクルを通し切ってから次に行く。落ちたときは Status を必ず戻す。「issue を回して」「ready から流して」「開発を回し続けて」等で使う。
 ---
 
 # issue-to-review-ready
@@ -53,7 +53,7 @@ description: Projects の Status が Ready の issue を 1 件掴み、In progre
                 "status_field": "PVTSSF_xxx",
                 "options": { "ready": "abc123", "in_progress": "def456",
                              "in_review": "ghi789", "blocked": null } },
-  "base": "dev", "cycles": 2,
+  "cycles": 2,
   "lane": { "issue": 128, "item_id": "PVTI_xxx", "slug": "add-export-api",
             "worktree": "../repo-wt-add-export-api", "session": "sess-4",
             "step": 5, "pr": 142, "prev_status": "Ready" } }
@@ -61,7 +61,6 @@ description: Projects の Status が Ready の issue を 1 件掴み、In progre
 
 - **`project` は 1 度だけ解決して保存する**（手順 0）。毎サイクル ID を引き直さない。
 - **`prev_status` は必ず持つ。** 落ちたときに戻す先が分からなくなる。
-- **`base` を持つ。** 毎サイクル base ブランチを聞き直さないため（手順 3）。
 - `lane` が残っていれば、**新しい issue を掴む前にそのサイクルを終わらせる**。
 
 ---
@@ -106,6 +105,16 @@ gh project item-list <number> --owner <owner> --format json --limit 200 \
 - Ready が **0 件なら、その旨だけ報告して終了する**。
 - 複数あれば **古い順に 1 件**。並び順の根拠が他にあるなら（優先度フィールド等）それに従う。
 
+#### prep ブロックが無い issue は拾わない
+
+```bash
+gh issue view <n> --json body --jq '.body' | grep -q 'worker-fleet:prep' || echo "not prepared"
+```
+
+- **prep ブロック（`issue-ready-prep` が書く）が無ければ飛ばす。** そこに base ブランチと受入基準が入っており、**無いと手順 3 で人待ちになる**（`/request-create` は対話必須で、AI が値を提案することを禁じている）。
+- 飛ばした issue は**件数と番号を報告する**。「`issue-ready-prep` を先に回してください」と 1 行添える。**黙って飛ばすと、いつまでも拾われない issue になる。**
+- **Ready 全件に prep が無いなら、それは運用が繋がっていない。** 個別に補わず、そう報告する。
+
 ### 2. Status を In progress にする —— **作業より先に**
 
 ```bash
@@ -116,23 +125,28 @@ gh project item-edit --project-id <state.project.id> --id <item_id> \
 - **ここで失敗したら中止する。** Status を動かせない状態で作業を始めると、**掴んだことが誰にも見えないまま二重着手が起きる**。
 - 変更前の Status を `prev_status` に記録する。手順 9-B で戻す。
 
-### 3. request と worktree を作る —— **worker ではなく、この セッションで**
+### 3. request と worktree を作る —— **prep ブロックの値をそのまま渡す**
 
-```text
-/request-create      ← issue の内容を渡し、ヒアリングにこのセッションが答える
+`/request-create` は**対話必須**である。しかもそれは意図された設計で、base ブランチについては **AI が値を提案する表現・`Enter で採用`・`main でいいですか` が禁止パターンとして正規表現つきで MUST 指定**されている。**AI に推測させないためのゲート**であり、迂回してよいものではない。
+
+**だから推測しない。人が `issue-ready-prep` で決めて issue に書いた値を、そのまま渡す。**
+
+```yaml
+# issue 本文の <!-- worker-fleet:prep v1 --> ブロック
+type: feature
+slug: add-export-api
+base: dev
+goal: ...
+background: ...
+acceptance: [...]
 ```
 
-**`/request-create` を worker に投げてはいけない。** あれは**対話必須**の skill で、
+このセッションで `/request-create` を起動し、**ヒアリングには prep ブロックの値で答える**。
 
-- **空入力は再質問**される
-- **`yes` / `y` / `はい` / 「同じで」等の曖昧応答も再質問**される（`request-create` の SKILL に明記されている）
-- base ブランチは `git ls-remote --heads origin` で**存在検証される literal な文字列**を要求される
-
-つまり **`y` を送るだけの自動応答では絶対に抜けられず、聞き直され続ける。** 対話が要るのはここだけなので、**このセッションが issue を読んで答える**のが正しい。
-
-- 答えの材料は issue（タイトル・本文・受入要件・ラベル）から作る。**issue から読み取れない項目だけを人に聞く。**
-- base ブランチは既定を state（`base`）に持ち、毎サイクル聞き直さない。
-- 中断された場合、**worktree と未 commit の request.md は自動削除しない**（`request-create` 側の仕様）。再開時は残骸を先に確認する。
+- **値の出所は人**（`prepared_by` に記録されている）。AI が候補を出したり既定を採用したりしていないので、`request-create` の原則を満たす。
+- **prep に無い項目を推測して答えない。** 聞かれて答えられない項目が出たら、**そこで止めて手順 9-B**（Status を戻し、「prep が不足している」と issue にコメントする）。**その場で埋めると、人が決めるはずの値を AI が決めたことになる。**
+- **`base` は正規化せずそのまま渡す。** 書いてある文字列が正である。
+- 中断された場合、**worktree と未 commit の request.md は自動削除されない**（`request-create` 側の仕様）。再開時は残骸を先に確認する。
 
 ### 3-b. worker を 1 本立てる
 

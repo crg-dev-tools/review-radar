@@ -8,18 +8,28 @@
 
 | skill | 説明 |
 |---|---|
+| `issue-ready-prep` | **無人で回すための準備。** Ready に上げる前に、`request-create` が聞く項目（業務タイプ・目的・背景・受入基準・slug・**base ブランチ**）を人と一緒に埋め、issue に機械可読なブロックとして書き込む。**人が居るうちにまとめて処理する。** |
 | `issue-to-review-ready` | **1 レーンの中身。** Ready の issue を 1 件掴み、In progress に移し、worker を 1 本立てて openspec-workflow を回し、draft PR → codex レビュー解消 → draft 解除 → Status を進めて次の issue へ。**1 件を通し切ってから次に行く。** |
 | `worker-fleet-loop` | **複数レーンの管理。** 1 tick で全 worker を 1 巡し、承認に答え、止まっているものを突き、空いたスロットに 1 本投入する。容量は毎 tick 測り直す。 |
 
-**まず `issue-to-review-ready` で 1 本通せるようにし、並列は後から `worker-fleet-loop` に乗せます。** 動いているレーンが 1 本なら、止まったときに必ず気づきます。
+**まず `issue-ready-prep` → `issue-to-review-ready` で 1 本通せるようにし、並列は後から `worker-fleet-loop` に乗せます。** 動いているレーンが 1 本なら、止まったときに必ず気づきます。
+
+### なぜ準備 skill が要るか
+
+`/request-create` は**対話必須**で、しかもそれは意図された設計です。base ブランチについては **AI が値を提案する表現・`Enter で採用`・`main でいいですか` が禁止パターンとして正規表現つきで MUST 指定**されています。**AI に推測させないためのゲート**なので、迂回すべきではありません。
+
+そこで**対話を消すのではなく、対話の時刻を動かします**。Ready に上げる作業は元々人がやるので、**そのときに全部決めて issue に literal で書いておく**。実行時は「人が書いた値をそのまま渡す」だけになり、原則を守ったまま無人で回ります。
+
+**この結果、`Ready` の意味が「着手可能」から「無人で着手可能」に変わります。** 受入基準の無い issue は Ready に置けません（`codex-draft-review` の出口が受入要件で完了を測るため）。**チームに伝わっている必要があります。**
 
 ### パイプライン（issue-to-review-ready）
 
 ```text
+（事前）issue-ready-prep が prep ブロックを書き、Status を Ready にする
 0. Projects の列（Ready / In progress / In review / Blocked）を 1 度だけ解決して state に保存
-1. Ready の issue を 1 件選ぶ（In progress の残骸が先。0 件なら終了）
+1. Ready の issue を 1 件選ぶ（In progress の残骸が先。**prep ブロックが無いものは拾わず報告**）
 2. Status を In progress にする ── 作業より先に。掴んだことを見えるようにする
-3. /request-create の対話は **このセッション**で済ませる（worker に投げると再質問で無限ループ）
+3. /request-create を回し、**prep ブロックの値でヒアリングに答える**（推測しない。足りなければ止める）
 3b. worktree ができてから worker を 1 本立て、cwd と /codex-draft-review の存在を確認 → /request-execute
 4. 監視しながら回す（マージ以外の承認は y／仕様の問い合わせは人へ／10 分無変化は 1 回突く）
 5. draft PR の存在を確認する（報告ではなく状態を見る）
@@ -87,13 +97,14 @@ worker が実行するのは `/request-execute` で、**delta spec・`tasks.md`�
 - **工程の完了は次の工程の入口で確認する。** 「PR を出しました」ではなく **PR が draft で存在すること**を見る
 - **1 サイクルは長い。** codex はサマリの 4〜5 分後に指摘を出すため、レビュー解消だけで 10 分以上かかります。**各工程の後に state を書き、中断・再開できる**ようにしています
 - **上限は 5 サイクル。** 超えたら残り件数を報告して終了します
-- **`/request-create` は worker に投げない。** 対話必須で、空入力も `はい` も**再質問**されるため、自動応答では抜けられません。対話が要るのはここだけなので、**このセッションが issue を読んで答えます**
+- **`/request-create` の答えは prep ブロックから取る。** AI が推測して答えると、`request-create` が禁じている「AI が値を決める」をやったことになります。**足りなければその場で埋めず、止めて人に返します**
 - **列名は初回に 1 度だけ解決する。** リポジトリごとに違うので、実在を確認せずに進むと出口で毎回止まります。毎サイクル聞くくらいなら自動化する意味がありません
 
 ## 使い方
 
 ```text
-/issue-to-review-ready               # Ready の issue を 1 件ずつ、人レビュー待ちまで通す
+/issue-ready-prep                    # issue を「無人で着手できる」状態にして Ready に上げる（人が居るとき）
+/issue-to-review-ready               # Ready の issue を 1 件ずつ、人レビュー待ちまで通す（無人）
 /worker-fleet-loop                   # フリートを 1 巡する（並列化したくなったら）
 /loop /worker-fleet-loop             # 巡回し続ける（間隔省略で自己ペーシング）
 ```
