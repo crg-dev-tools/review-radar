@@ -1,5 +1,5 @@
 {
   "name": "worker-fleet",
-  "description": "Supervisor-side loop that keeps a fleet of Claude worker sessions busy. One tick sweeps every worker: it answers approval prompts (everything except merge), nudges the ones that have gone silent, advances the ones that finished, and starts one new worker in a free slot from a labeled issue. Capacity is re-measured every tick from free memory and CPU rather than fixed at startup. The implementation itself belongs to openspec-workflow and the review to pr-loop; this plugin owns capacity, classification, intervention, and dispatch.",
-  "version": "0.1.1"
+  "description": "Supervisor-side loops that run development through Claude worker sessions. issue-to-review-ready takes one Ready issue from the project board, moves it to In progress before touching anything, stands up a worker in its own worktree, runs openspec-workflow, confirms the draft PR exists rather than trusting the report, hands the review to codex-draft-review, verifies the undraft and reviewer assignment, advances the board, and moves to the next issue — and if it stops anywhere, it puts the status back, because an issue parked in In progress is worse than an untouched one. worker-fleet-loop adds the parallel case: one tick sweeps every worker, answering approvals (everything except merge), nudging the silent, and dispatching one new lane into free capacity measured fresh each tick. The implementation belongs to openspec-workflow and the review to pr-loop; this plugin owns the lane.",
+  "version": "0.2.0"
 }

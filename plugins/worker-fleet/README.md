@@ -1,20 +1,39 @@
 # worker-fleet
 
-**Claude の worker セッションを並列に走らせ続ける** supervisor 側のオーケストレーションプラグイン。
+**Claude の worker セッションを立てて、開発を回し続ける** supervisor 側のオーケストレーションプラグイン。
 
-実装の中身は書きません。中身は `openspec-workflow`（`request-create` / `request-execute` / `request-fixup`）に、PR のレビューは [`pr-loop`](../pr-loop) に委譲し、このプラグインが持つのは**容量・分類・介入・投入**です。
+実装の中身は書きません。中身は `openspec-workflow`（`request-create` / `request-execute` / `request-fixup`）に、PR のレビューは [`pr-loop`](../pr-loop) に委譲します。
 
 ## 収録 skill
 
 | skill | 説明 |
 |---|---|
-| `worker-fleet-loop` | 1 tick で全 worker を 1 巡する。承認に答え（**マージだけは人に回す**）、止まっているものを突き、終わったものを次のフェーズへ送り、空いたスロットに issue から 1 本投入する。 |
+| `issue-to-review-ready` | **1 レーンの中身。** Ready の issue を 1 件掴み、In progress に移し、worker を 1 本立てて openspec-workflow を回し、draft PR → codex レビュー解消 → draft 解除 → Status を進めて次の issue へ。**1 件を通し切ってから次に行く。** |
+| `worker-fleet-loop` | **複数レーンの管理。** 1 tick で全 worker を 1 巡し、承認に答え、止まっているものを突き、空いたスロットに 1 本投入する。容量は毎 tick 測り直す。 |
+
+**まず `issue-to-review-ready` で 1 本通せるようにし、並列は後から `worker-fleet-loop` に乗せます。** 動いているレーンが 1 本なら、止まったときに必ず気づきます。
+
+### パイプライン（issue-to-review-ready）
+
+```text
+0. Projects の列（Ready / In progress / In review / Blocked）を 1 度だけ解決して state に保存
+1. Ready の issue を 1 件選ぶ（In progress の残骸が先。0 件なら終了）
+2. Status を In progress にする ── 作業より先に。掴んだことを見えるようにする
+3. /request-create の対話は **このセッション**で済ませる（worker に投げると再質問で無限ループ）
+3b. worktree ができてから worker を 1 本立て、cwd と /codex-draft-review の存在を確認 → /request-execute
+4. 監視しながら回す（マージ以外の承認は y／仕様の問い合わせは人へ／10 分無変化は 1 回突く）
+5. draft PR の存在を確認する（報告ではなく状態を見る）
+6. /codex-draft-review を同じ worker に投げてレビューを解消する
+7. draft 解除と reviewer アサインを確認する（欠けていれば補う）
+8. Status を In review へ。worker を閉じる（worktree は残す）
+9. 次の issue へ（上限 5 サイクル）／止まったら Status を必ず戻す
+```
 
 ## なぜ codex ではなく Claude worker か
 
 worker が実行するのは `/request-execute` で、**delta spec・`tasks.md`・`request-fixup`・`verification` という openspec-workflow の資産の上で動きます**。codex にはこれらが無いため、同じ仕事をさせても成果物の形が揃わず、`request-merge` の後片付けにも乗りません。**資産がある側で走らせます。**
 
-## 何のためか
+## worker-fleet-loop — 何のためか（並列にするとき）
 
 並列で走らせる運用で落ちるのは、実装の質ではありません。次の 3 つで、いずれも worker を増やしても直りません。
 
@@ -24,21 +43,21 @@ worker が実行するのは `/request-execute` で、**delta spec・`tasks.md`�
 
 そこでこのループは、**毎 tick 容量を測り直し**、**無音を 4 値に分類し**、**空いたスロットにだけ投入します**。
 
-## ループの形
+### ループの形
 
 ```text
 0. 容量を測る（空きメモリと論理コアから毎 tick 算出）
 1. 全 worker の状態を取る（get_status）
 2. 分類 ── active / waiting（承認待ち）/ done / stuck（10 分無変化）
 3. 介入 ── 承認に答える（マージ以外は y）／完了は次フェーズへ／stuck は 1 回だけ突く
-4. 空きスロットに 1 本投入（issue → /request-create → worker 起動 → /request-execute）
+4. 空きスロットに 1 本投入（レーンの立て方は issue-to-review-ready の手順 2〜3-b と同じ）
 5. 満杯なら pr-open の terminal を閉じて worktree を残す
 6. state を書き、1 行で報告
 ```
 
 **1 tick = 全 worker を 1 巡**です。ここだけ他のループ（1 呼び出し = 1 PR）と設計が違います。worker は互いに独立で、**スロット 2 の承認待ちがスロット 1 の完了を待つ理由が無い**ためです。
 
-## 運用上の決め事
+### 運用上の決め事
 
 - **マージだけは人。** それ以外の承認は自動で通します。worker は worktree の中にいるので大半の操作は取り返せますが、**マージだけは取り返せない**
 - **無音は完了ではない。** `idle` は「終わった」と「止まった」のどちらでもある。**出力を見るまで判定しない**
@@ -55,21 +74,37 @@ worker が実行するのは `/request-execute` で、**delta spec・`tasks.md`�
 - **main worktree から起動すること**（worktree の中からは起動しない）
 - **`supervisor-mode` は任意。** あれば hooks が main worktree での編集・commit・PR 作成をブロックしますが、**動作条件ではありません**。無い環境では「この skill を回している間、自分でコードを書かない」を決め事として守ります（**強制が無い分、破ってもエラーになりません**）
 - 対象リポジトリが **openspec-workflow を採用していること**
-- `gh` CLI
+- `gh` CLI。`issue-to-review-ready` は加えて **`project` スコープ**が要ります（無いと Projects の読み書きが 403）
+  ```bash
+  gh auth status              # scopes に project があるか
+  gh auth refresh -s project  # 無ければ追加
+  ```
+
+## issue-to-review-ready の決め事
+
+- **Status は作業の前に動かす。** 掴んでから着手する。逆順だと他のレーンが同じ issue を掴む
+- **落ちたら Status を必ず戻す。** In progress のまま放置された issue は、**未着手より悪い**（誰も拾わない）。戻し忘れがこの skill の最も高い失敗
+- **工程の完了は次の工程の入口で確認する。** 「PR を出しました」ではなく **PR が draft で存在すること**を見る
+- **1 サイクルは長い。** codex はサマリの 4〜5 分後に指摘を出すため、レビュー解消だけで 10 分以上かかります。**各工程の後に state を書き、中断・再開できる**ようにしています
+- **上限は 5 サイクル。** 超えたら残り件数を報告して終了します
+- **`/request-create` は worker に投げない。** 対話必須で、空入力も `はい` も**再質問**されるため、自動応答では抜けられません。対話が要るのはここだけなので、**このセッションが issue を読んで答えます**
+- **列名は初回に 1 度だけ解決する。** リポジトリごとに違うので、実在を確認せずに進むと出口で毎回止まります。毎サイクル聞くくらいなら自動化する意味がありません
 
 ## 使い方
 
 ```text
-/worker-fleet-loop                   # フリートを 1 巡する
+/issue-to-review-ready               # Ready の issue を 1 件ずつ、人レビュー待ちまで通す
+/worker-fleet-loop                   # フリートを 1 巡する（並列化したくなったら）
 /loop /worker-fleet-loop             # 巡回し続ける（間隔省略で自己ペーシング）
 ```
 
 ## 他のループとの関係
 
-| | worker-fleet-loop | codex-draft-review | bot-pr-resolve |
+| | issue-to-review-ready | worker-fleet-loop | codex-draft-review |
 |---|---|---|---|
-| 位置 | 上流（PR を**作らせる**） | 下流（PR を**通す**） | 下流（PR を**外す**） |
-| 単位 | 1 tick = 全 worker | 1 呼び出し = 1 PR | 1 呼び出し = 1 PR |
-| 出口 | PR が上がる → レビュー対応まで同じ worktree | draft 解除して人レビュー待ち | 基準を満たせばマージ |
+| 位置 | 上流（issue → 人レビュー待ち） | 上流（レーン管理） | 下流（PR を通す） |
+| 単位 | 1 サイクル = 1 issue | 1 tick = 全 worker | 1 呼び出し = 1 PR |
+| 並列 | しない | する | — |
+| 含むもの | Status 遷移・worker 起動・実装・レビュー解消・draft 解除 | 起動と介入と投入だけ | レビューの周回と draft 解除 |
 
-**3 つを `/loop` で並べると、issue から人レビュー待ちまでが人手なしで流れます。** マージだけが人の手元に残ります。
+**`issue-to-review-ready` の手順 6 は `codex-draft-review` を呼びます。** 並列化したくなったら、このパイプラインを 1 レーンとして `worker-fleet-loop` に複数持たせます。マージだけが人の手元に残ります。
