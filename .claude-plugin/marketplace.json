@@ -22,7 +22,7 @@
     {
       "name": "draft-review-loop",
       "source": "./plugins/draft-review-loop",
-      "description": "Orchestration loop that carries a codex-authored draft PR all the way to human-review-ready. It owns the ordering, the repetition and its ceilings, and the exit — not the review itself, which is delegated to light-review / isolated-review. Acceptance criteria are read thickly at the entrance and confirmed again at the exit, verification is placed immediately after every loop that changes code, and each repetition carries a bound plus an escalation target. One PR per invocation; the outer iteration belongs to /loop."
+      "description": "Orchestration loops that carry automatically generated PRs out of the queue. They own the ordering, the repetition and its ceilings, and the exit — not the review itself, which is delegated to light-review / isolated-review. codex-draft-review takes a codex-authored draft PR to human-review-ready: acceptance criteria read thickly at the entrance and confirmed at the exit, verification placed immediately after every loop that changes code, and no merge — the verdict stays with the human. bot-pr-resolve takes a Dependabot / Renovate / security PR off the queue: classify the route, inspect the actual change and CI, and merge only when every safety criterion holds, otherwise hand it over with the blocking criterion named. One PR per invocation; the outer iteration belongs to /loop."
     }
   ]
 }
