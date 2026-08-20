@@ -8,11 +8,17 @@
 
 | skill | 説明 |
 |---|---|
-| `issue-ready-prep` | **無人で回すための準備。** Ready に上げる前に、`request-create` が聞く項目（業務タイプ・目的・背景・受入基準・slug・**base ブランチ**）を人と一緒に埋め、issue に機械可読なブロックとして書き込む。**人が居るうちにまとめて処理する。** |
+| `issue-ready-prep` | **無人で回すための準備。** その仕事がまだ空いているかを確かめ（claim チェック）、`request-create` が聞く項目（業務タイプ・目的・背景・**検証可能な**受入基準・slug・**base ブランチ**・skip-review 系・reviewer）を人と一緒に埋め、issue に prep ブロック v2 として書き込む。**人が居るうちにまとめて処理する。** |
 | `issue-to-review-ready` | **1 レーンの中身。** Ready の issue を 1 件掴み、In progress に移し、worker を 1 本立てて openspec-workflow を回し、draft PR → codex レビュー解消 → draft 解除 → Status を進めて次の issue へ。**1 件を通し切ってから次に行く。** |
 | `worker-fleet-loop` | **複数レーンの管理。** 1 tick で全 worker を 1 巡し、承認に答え、止まっているものを突き、空いたスロットに 1 本投入する。容量は毎 tick 測り直す。 |
 
 **まず `issue-ready-prep` → `issue-to-review-ready` で 1 本通せるようにし、並列は後から `worker-fleet-loop` に乗せます。** 動いているレーンが 1 本なら、止まったときに必ず気づきます。
+
+### 完全な無人ではありません（1 issue につき 1 回）
+
+`request-create` Step 2 は `AskUserQuestion` ツールの呼び出しで、**値が prep に書いてあっても呼び出し自体が発火して人の操作を待ちます**。AI が代理で押せるツールではないため、**prep に何を書いても潰せません**。
+
+平文のヒアリング（要件・base ブランチ）は prep の値で答えられるので、**塞がっているのは Step 2 だけ**です。1 箇所だと分かっていれば運用は組めます（レーン投入時にまとめて押す等）。本筋の解決は `openspec-workflow` 側に非対話経路を作ることで、それはこのプラグインの scope 外です。
 
 ### なぜ準備 skill が要るか
 
@@ -25,18 +31,19 @@
 ### パイプライン（issue-to-review-ready）
 
 ```text
-（事前）issue-ready-prep が prep ブロックを書き、Status を Ready にする
+（事前）issue-ready-prep が claim を確かめ、prep ブロック v2 を書き、Status を Ready にする
 0. Projects の列（Ready / In progress / In review / Blocked）を 1 度だけ解決して state に保存
 1. Ready の issue を 1 件選ぶ（In progress の残骸が先。**prep ブロックが無いものは拾わず報告**）
 2. Status を In progress にする ── 作業より先に。掴んだことを見えるようにする
 3. /request-create を回し、**prep ブロックの値でヒアリングに答える**（推測しない。足りなければ止める）
-3b. worktree ができてから worker を 1 本立て、cwd と /codex-draft-review の存在を確認 → /request-execute
+   ※ Step 2 の AskUserQuestion だけは潰せず、**1 issue につき 1 回人が押す**
+3b. **出力の `Worktree:` と `Next step` をそのまま使う**。レーン専用 group で worker を立て、pwd 一致と /codex-draft-review を確認 → /request-execute（bug-fix なら /execute-bugfix）
 4. 監視しながら回す（マージ以外の承認は y／仕様の問い合わせは人へ／10 分無変化は 1 回突く）
 5. draft PR の存在を確認する（報告ではなく状態を見る）
 6. /codex-draft-review を同じ worker に投げてレビューを解消する
 7. draft 解除と reviewer アサインを確認する（欠けていれば補う）
 8. Status を In review へ。worker を閉じる（worktree は残す）
-9. 次の issue へ（上限 5 サイクル）／止まったら Status を必ず戻す
+9. 次の issue へ（上限 5 サイクル）／止まったら **Ready の 1 つ手前**へ戻し、blocked に記録する
 ```
 
 ## なぜ codex ではなく Claude worker か
@@ -98,6 +105,8 @@ worker が実行するのは `/request-execute` で、**delta spec・`tasks.md`�
 - **1 サイクルは長い。** codex はサマリの 4〜5 分後に指摘を出すため、レビュー解消だけで 10 分以上かかります。**各工程の後に state を書き、中断・再開できる**ようにしています
 - **上限は 5 サイクル。** 超えたら残り件数を報告して終了します
 - **`/request-create` の答えは prep ブロックから取る。** AI が推測して答えると、`request-create` が禁じている「AI が値を決める」をやったことになります。**足りなければその場で埋めず、止めて人に返します**
+- **claim を確かめてから prep する。** 人が 1 件ずつ Ready に上げていた頃は人の記憶がその役目でしたが、無人化した瞬間に消えます（実測: prep した 6 件中 5 件が既に open PR を持っていた）。判定は **claimed / clear / 判定不能**の 3 値で、**推測で clear にしません**
+- **`create_session` に既存 group を渡さない。** 渡すとその group の稼働中セッションが破壊されます（実測: worker 2 本が消失）。レーン専用 group を使い、立てる前に `get_status` で列挙します
 - **列名は初回に 1 度だけ解決する。** リポジトリごとに違うので、実在を確認せずに進むと出口で毎回止まります。毎サイクル聞くくらいなら自動化する意味がありません
 
 ## 使い方
