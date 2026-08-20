@@ -33,6 +33,8 @@ description: issue-ready-prep で準備済み（prep ブロック v2）の Ready
 - **中断可能にする。** 1 サイクルは codex の待機を含むと数十分〜数時間になる。**各工程の後に state を書き**、途中から再開できるようにする。
 - **パスもコマンドも組み立てない。** worktree の場所も、投げる skill 名（`/request-execute` か `/execute-bugfix` か）も、`request-create` の出力に書いてある。**自分で持つと二重管理になり、上流が変わった瞬間に壊れる。**
 - **止まった issue を Ready に戻さない。** 戻すと次サイクルが同じ issue を掴む。`blocked[]` に理由付きで記録し、選択から外す。
+- **書き忘れは防がず、後から引き直す。** 出口は手順 8 だけではない（人が引き取る・worker を手で閉じる・supervisor が落ちる）。**書き込み点を増やす対策は出口が増えるたびに漏れる**ので、入口で reconcile する（手順 0-b）。
+- **他人が書いた「確認した」を信じない。** `request-execute` が書く PR 本文のチェック行は、この skill の規律の外にある。実測で、チェック済みなのに事実と違う本文があった。
 - **完全な無人ではない。** `request-create` Step 2 の `AskUserQuestion` は prep で潰せず、**1 issue につき 1 回だけ人が押す**。塞がっている箇所を隠さない。
 
 ## 前提
@@ -64,7 +66,7 @@ description: issue-ready-prep で準備済み（prep ブロック v2）の Ready
   ],
   "lane": { "issue": 128, "item_id": "PVTI_xxx", "slug": "add-export-api",
             "worktree": "<repo>/.claude/worktrees/add-export-api", "session": "sess-4",
-            "step": 5, "pr": 142, "prev_status": "Ready" } }
+            "step": 5, "pr": 142, "drafted": true, "prev_status": "Ready" } }
 ```
 
 - **`project` は 1 度だけ解決して保存する**（手順 0）。毎サイクル ID を引き直さない。
@@ -72,6 +74,7 @@ description: issue-ready-prep で準備済み（prep ブロック v2）の Ready
 - **`blocked[]` を持つ。** 落ちた issue を手順 1 の選択から外すため（理由つき）。**これが無いと、同じ issue を掴み直して 5 サイクルを 1 件で使い切る。**
 - **`worktree` は自分で組み立てず、`request-create` の出力から読む**（手順 3）。配置規約が変わっても追随する。
 - **`group` はこのレーン専用**。他のセッションと共有しない（前提の `create_session` 破壊）。
+- **`drafted` は「このレーンが draft にした」印**（手順 5）。手順 7 はこれを見る。**`isDraft == false` は「一度も draft でなかった PR」でも成立する**ので、出口の条件にできない。
 - `lane` が残っていれば、**新しい issue を掴む前にそのサイクルを終わらせる**。
 
 ---
@@ -102,6 +105,29 @@ gh project field-list <number> --owner <owner> --format json \
 - 聞くのは**初回の 1 度だけ**。答えを `options` に保存して以後は聞かない。**毎サイクル聞くくらいなら自動化する意味がない。**
 - `project` スコープが無ければここで止める（後続が全部 403 になる）。
 
+### 0-b. In progress を PR の実態から引き直す（reconcile）
+
+**書き忘れを防ぐのではなく、後から埋める。**
+
+Status が書かれるのは手順 2（掴む時）と手順 8（出口）の 2 点だけで、**手順 8 以外の経路でレーンが終わると Status も reviewer も取り残される**（並列運用で worker を手で閉じた・人が途中で引き取った・supervisor 側が落ちた）。書き込み点を増やす対策では、出口が増えるたびに漏れる。
+
+In progress の item を全部、**PR の実態から引き直す**。
+
+| PR の状態 | あるべき Status | 併せて直す |
+|---|---|---|
+| PR が無い | In progress のまま（実装中） | — |
+| draft PR がある | In progress のまま | — |
+| **draft 解除済 + OPEN** | **In review** | reviewer が空なら prep の `reviewer` をアサイン |
+| MERGED | Done（列が無ければ人に渡す） | — |
+
+```bash
+gh pr list --state all --head <branch> --json number,isDraft,state,reviewRequests --jq '.[0]'
+```
+
+- **`In progress` が 2 つの意味を持つのを解消する手順である。** これが無いと、手順 1 が**完走済みのレーンを「落ちたレーン」と誤認して掴みに行き、サイクルが空転する**。
+- 実測で、完走扱いの 2 レーンが **reviewer ゼロ / Status = In progress** のまま放置されていた。`isDraft: false` まで到達しているので手順 6 は終わっており、**手順 7 と 8 だけが揃って飛んでいた**。
+- reviewer の handle は**その issue の prep ブロック**から取る。無ければアサインせず、報告に載せる。
+
 ### 1. Ready の issue を 1 件選ぶ
 
 **再開が最優先。** state ファイルが残っていれば、その issue の `step` から再開する。
@@ -112,7 +138,7 @@ gh project item-list <number> --owner <owner> --format json --limit 200 \
   --jq '[.items[] | select(.status == "Ready" and .content.type == "Issue")]'
 ```
 
-- **In progress に残っているものが先。** 前のサイクルが落ちた痕跡なので、新しく掴む前に片付ける（放置されたレーンが最も高くつく）。
+- **reconcile（手順 0-b）後も In progress に残っているものが先。** そこまで残ったものは本当に落ちたレーンなので、新しく掴む前に片付ける（放置されたレーンが最も高くつく）。**reconcile 前に判断すると、完走済みのレーンを掴んで空転する。**
 - **state の `blocked[]` にある issue は選ばない。** 前サイクルで止まった理由は消えていない。**除外しないと、同じ issue を掴み直して上限 5 サイクルを 1 件で使い切る。**
 - Ready が **0 件なら、その旨だけ報告して終了する**。
 - 複数あれば **古い順に 1 件**。並び順の根拠が他にあるなら（優先度フィールド等）それに従う。
@@ -250,8 +276,19 @@ gh pr list --head <branch> --json number,isDraft,url --jq '.[0]'
 
 - **worker の「PR を出しました」を信じず、存在を確認する。**
 - **無ければ完了ではない。** エスカレーションする（実装が途中で終わっている）。
-- draft でなければ draft に戻す（`gh pr ready --undo <n>`）。レビューを回す前に人に見えてしまうのを防ぐ。
 - PR 番号を state に書く。
+
+#### draft にしたことを state に記録する
+
+**`request-execute` は PR を draft で作らない**（`--draft` の指定が無い）。つまりレーンが作る PR は**最初から非 draft**で、draft 状態を作っているのはこの 1 行だけである。
+
+```bash
+gh pr ready --undo <n>          # draft に戻す
+```
+
+- **成功したら state に `drafted: true` を書く。** 手順 7 はこのフラグを見る。**「今 draft でない」ことと「レビューを回して解除した」ことは別物**で、`isDraft == false` だけでは区別できない。
+- **これは事後的な取り消しなので、PR 作成から undo までの間は人に見える。** 窓を消すには `request-execute` 側が `--draft` で作る必要がある（上流の課題）。
+- ここが飛ぶと、**レビューを一度も回していない PR が回し終えた PR と同じ見た目で人レビュー待ちに並ぶ**。手順 7 でそれを止める。
 
 ### 6. codex のレビューを解消する
 
@@ -266,14 +303,34 @@ submit_prompt(id, "/codex-draft-review")
 - **待ちは長い。** codex はサマリを先に投げ、指摘は 4〜5 分後に届く。`codex-draft-review` はサマリ受信から 6 分無音を待つので、1 周でも 10 分以上かかる。**ここで中断して後で再開してよい**（state があるため）。
 - `codex-draft-review` がエスカレーションで停止したら、**このパイプラインも止める**（手順 9-B）。上限を超えた周回を、こちらで押し通さない。
 
-### 7. draft が解除されたことを確認する
+### 7. レビューが実際に回ったことを確認する
+
+**`isDraft == false` を出口の条件にしない。** その条件は「一度も draft でなかった PR」でも成立するので、**レビューを回し終えたのか、そもそも回していないのかを区別できない**。
+
+確認するのは 3 つ。
 
 ```bash
-gh pr view <n> --json isDraft,reviewRequests --jq '{isDraft, reviewers: [.reviewRequests[].login]}'
+# ① 自分が draft にした PR が、解除されたか（state の drafted を見る）
+gh pr view <n> --json isDraft --jq .isDraft
+
+# ② 未 resolve のレビュースレッドが 0 件か —— 自分で測る
+gh api graphql -f query='
+{ repository(owner:"OWNER", name:"REPO"){ pullRequest(number:NNN){
+    reviewThreads(first:100){ nodes{ isResolved } } } } }' \
+  --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)]|length'
+
+# ③ reviewer がアサインされているか
+gh pr view <n> --json reviewRequests --jq '[.reviewRequests[].login]'
 ```
 
-- `isDraft == false` **かつ reviewer がアサインされている**こと。**アサインの無い PR は誰にも見られない。**
-- どちらか欠けていたら、**この skill が補う**。
+| 条件 | 満たさないとき |
+|---|---|
+| state が `drafted: true`（手順 5 で自分が draft にした） | **手順 9-B。** 一度も draft でない PR は出口を通さない。レビューが回っていない |
+| 未 resolve スレッドが **0 件** | **手順 6 に戻る。** `codex-draft-review` の完了報告を信じず、ここで測り直す |
+| reviewer がアサイン済み | 下記で補う |
+
+- **②は手順 6 の再測定である。** `codex-draft-review` が走ったかどうかに関わらず取りこぼしを止められる。**この skill の原則「報告ではなく状態を見る」をここにも適用する。** 実測で、`codex-draft-review` が一度も走っていないのに完走扱いになったレーンがあった（未 resolve 2 件が残ったまま人レビュー待ちに置かれ、その 2 件は受入基準への違反だった）。
+- reviewer が空なら補う。
 
 ```bash
 gh pr ready <n>
@@ -282,6 +339,18 @@ gh pr edit <n> --add-reviewer <prep ブロックの reviewer>
 
 - **reviewer は prep ブロックから取る。** 自分で選ばない —— **誰に見せるかは人が決めることで、勝手に他人の仕事にしない**。
 - prep に `reviewer` が無い（v1 ブロック）なら、**アサインせずに報告する**。**「アサインの無い PR は誰にも見られない」ので、黙って出口を通さない。**
+
+#### PR 本文に実測を追記してから閉じる
+
+`request-execute` が書いた本文には「`...` で確認」というチェック済みの行が入るが、**それはこの skill の規律の外で書かれたもの**である。実測で、チェック済みなのに事実と違う本文があった（「src の変更が無いことを確認」と書かれた PR に、受入基準に反する src の変更が 2 箇所あった）。
+
+**人はコマンドが書かれていると測定済みだと読む。** だから、レーンが閉じる前に**自分が測った値**を追記する（`codex-draft-review` 手順 12 と同じ書式）。
+
+```text
+未 resolve スレッド: 0 件（<head-sha> 時点 / GraphQL reviewThreads で測定）
+受入基準: <n>/<n> 充足（prep ブロックの acceptance と突き合わせ）
+draft: レーンが draft 化 → 解除（drafted: true）
+```
 
 ### 8. Status を進め、worker を閉じる
 
