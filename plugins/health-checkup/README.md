@@ -57,8 +57,27 @@
 | 5 | 長期滞留 issue（既定 90 日） | `gh` | 減少 |
 | 6 | milestone なし issue | `gh` | 減少 |
 | 7 | spec-実装乖離（代理指標: 人間が意図確認していない spec 項目） | spec 基盤 | 減少 |
+| 8 | **テストの実効性**（切られたテスト / 落ちる条件の無いテスト / 設定で緑） | `gh` | **no_assertion・always_true は 0** |
 
-#2 だけは率を出しません（分母が LLM 判定に依存して動くため、3 値の分布で報告）。**測れない指標にはデフォルト値を代入せず `skipped` + reason を記録**します。多くのリポジトリで #3 の c2 / #4 / #7 は skipped になり、それが正しい挙動です。
+### #8 は「カバレッジに映らない失敗」を見ます
+
+カバレッジが答えるのは「その行が実行されたか」で、次の 2 つには効きません。
+
+- **切られたテスト**（`it.skip` / `@pytest.mark.skip` / `t.Skip`）。同じ行を他のテストが通るので**率がほとんど動かず**、確認が止まったことが数字に出ない
+- **落ちる条件が無いテスト**（アサーション 0 / 常に真 / 対象自身を mock）。**実行はされるので率をむしろ上げる**
+
+| 指標 | 何を数えるか | 基準 |
+|---|---|---|
+| `test.skip.unreferenced` | 切られていて issue 参照が無い | 減少 |
+| `test.skip.dest.missing` | 「別で担保」と書いてあるが担保先が実在しない | **0** |
+| `test.no_assertion` | assertion が 1 つも無いテストファイル | **0** |
+| `test.always_true` | `expect(true).toBe(true)` 等、構造上必ず通る行 | **0** |
+| `test.self_mocked` | 対象自身を mock している（自分のスタブに assert） | 減少 |
+| `test.green_by_config` | `--passWithNoTests` / `continue-on-error: true` / `\|\| true` / retry 設定 | 減少 |
+
+**判定は意図的に狭くしています。** 取りこぼすと数字が 1 つ小さくなるだけですが、誤検出は**レポート全体を読まれなくします**。依存の mock は数えず、対象自身を mock した場合だけ数えるのもこのためです。
+
+#2 だけは率を出しません（分母が LLM 判定に依存して動くため、3 値の分布で報告）。**測れない指標にはデフォルト値を代入せず `skipped` + reason を記録**します。多くのリポジトリで #3 の c2 / #4 / #7 は skipped になり、それが正しい挙動です。テストファイルの命名が既定と違うリポジトリでは #8 も skipped になります（分母が無いまま数えません）。
 
 ## 前提
 
@@ -134,10 +153,11 @@ skill が呼びます。単体でも実行でき、いずれも metric TSV（`ke
 | `changed-since.sh` | 前回健診以降に変更された tracked ファイルを列挙（差分ゼロなら subagent を撃たない判断に使う） |
 | `collect-issues.sh` | #5 / #6 |
 | `collect-todos.sh` | #1 の script 部分（参照付き TODO を `gh` で解決、参照なしを subagent 用に書き出す） |
-| `resolve-references.sh` | subagent が抽出した宛先の**実在確認**（#2 / #1 を別 prefix で数える） |
+| `resolve-references.sh` | subagent が抽出した宛先の**実在確認**（#2 / #1 / #8 を別 prefix で数える） |
 | `collect-coverage.sh` | #3 |
 | `collect-e2e.sh` | #4 |
 | `collect-spec-drift.sh` | #7 |
+| `collect-tests.sh` | #8 の script 部分（skip の参照解決、落ちる条件の無いテスト、設定で緑にしている箇所。参照なし skip を subagent 用に書き出す） |
 | `append-health.sh` | `health.md` の追記・前回値の読み取り・起動元への数行サマリ（`--html` で HTML も再生成） |
 | `render-html.sh` | `health.md` → `health.html`（自己完結 HTML。外部依存・pandoc なし） |
 

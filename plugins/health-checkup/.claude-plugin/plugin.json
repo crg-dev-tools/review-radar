@@ -1,5 +1,5 @@
 {
   "name": "health-checkup",
-  "description": "Periodic repository health checkup. Counts — never blocks — the obligations offloaded during development: unresolved TODOs, \"guaranteed elsewhere\" claims classified as verified / missing / untraceable, stale and unmilestoned issues, coverage, and spec-implementation drift. An LLM only extracts where a claim points; scripts decide whether that place exists, do the arithmetic, and append the numbers next to their baselines. The diagnosis is left to humans.",
-  "version": "0.1.1"
+  "description": "Periodic repository health checkup. Counts — never blocks — the obligations offloaded during development: unresolved TODOs, \"guaranteed elsewhere\" claims classified as verified / missing / untraceable, stale and unmilestoned issues, coverage, and spec-implementation drift. An LLM only extracts where a claim points; scripts decide whether that place exists, do the arithmetic, and append the numbers next to their baselines. The diagnosis is left to humans. It also counts the tests that do not test: the ones switched off without a tracked reason, the ones that cannot fail (no assertion, an assertion true by construction, or the subject itself mocked away), and the places where the suite is kept green by configuration rather than by tests — failures coverage cannot show, because a skipped test barely moves the rate and a test that cannot fail raises it.",
+  "version": "0.2.0"
 }

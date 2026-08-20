@@ -36,3 +36,16 @@ e2e.coverage	e2e 網羅度	上昇	テスト網羅	spec に宣言されたシナ�
 spec.unconfirmed	spec-実装乖離（未確認 spec 項目）	減少	spec 整合	コードから観測して書かれ、人間が意図確認していない spec 項目の数。乖離の代理指標
 spec.missing_area	spec なし機能領域	減少	spec 整合	spec が書かれていない機能領域の数。機械的に定義できないため測らない（skipped）
 spec.unreflected	spec 未反映の実装変更	減少	spec 整合	実装済みだが spec に反映されていない変更の数。機械的に定義できないため測らない（skipped）
+test.skip.total	skip / todo されたテスト（総数）	—	テストの実効性	it.skip / test.todo / xit / pytest.mark.skip / t.Skip 等の総数。書く習慣で動くため率の分母には使わない
+test.skip.unreferenced	skip 参照なし	減少	テストの実効性	切られているのに issue 参照が同一行に無いもの。追跡されていない停止であり、この指標群の主役
+test.skip.referenced_open	skip 参照付き（issue open）	—	テストの実効性	参照先の issue が open な skip。追跡されている状態なので基準は置かない
+test.skip.referenced_missing	skip 参照付き（issue 不在）	**0**	テストの実効性	参照先の issue 番号が存在しない skip。参照が切れている
+test.skip.referenced_closed	skip 参照付き（issue closed）	—	テストの実効性	参照先が closed の skip。issue は閉じたのにテストが戻されていない可能性
+test.skip.dest.verified	skip 参照なし: 文中の宛先が実在	—	テストの実効性	参照は無いが理由から宛先が読み取れ、その宛先が実在したもの
+test.skip.dest.missing	skip 参照なし: 文中の宛先が不在	**0**	テストの実効性	理由から読める宛先が実在しないもの。「別で担保」と書いてあるが担保先が無い
+test.skip.dest.untraceable	skip 参照なし: 宛先の記述なし	減少	テストの実効性	なぜ切ったかも、どこで担保するかも書かれていない skip。誰も戻せない
+test.skip.dest.notdebt	skip 検出のうち債務でない	—	テストの実効性	抽出候補のうち、恒久的に不要と判断されているもの等。誤検出量の可視化用
+test.no_assertion	アサーションが 1 つも無いテスト	**0**	テストの実効性	ファイル内に assertion が 1 つも無いテストファイル数。実行はされるが落ちる条件が存在しない
+test.always_true	常に真のアサーション	**0**	テストの実効性	expect(true).toBe(true) / assertTrue(true) / assert True 等、構造上必ず通る行の数。判定は意図的に狭い
+test.self_mocked	対象自身を mock しているテスト	減少	テストの実効性	foo.test.ts が ./foo を mock している等。依存の mock は数えない。自分のスタブに対して assert している状態
+test.green_by_config	設定で緑にしている箇所	減少	テストの実効性	--passWithNoTests / continue-on-error: true / || true / retry 設定。テストではなく CI 側で緑を作っている箇所
