@@ -1,6 +1,6 @@
 ---
 name: issue-to-review-ready
-description: issue-ready-prep で準備済みの Ready な issue を 1 件掴み、In progress に移し、worker terminal を 1 本立てて openspec-workflow を回し、draft PR を出し、codex レビューを解消し、draft を解除して Status を進め、次の issue へ進む直列パイプライン。1 サイクルを通し切ってから次に行く。落ちたときは Status を必ず戻す。「issue を回して」「ready から流して」「開発を回し続けて」等で使う。
+description: issue-ready-prep で準備済み（prep ブロック v2）の Ready な issue を 1 件掴み、In progress に移し、worker terminal を 1 本立てて openspec-workflow を回し、draft PR を出し、codex レビューを解消し、draft を解除して Status を進め、次の issue へ進む直列パイプライン。1 サイクルを通し切ってから次に行く。落ちたときは Status を Ready の 1 つ手前へ戻し、blocked に記録する。request-create Step 2 の AskUserQuestion で 1 issue につき 1 回だけ人の操作が要る。「issue を回して」「ready から流して」「開発を回し続けて」等で使う。
 ---
 
 # issue-to-review-ready
@@ -31,11 +31,16 @@ description: issue-ready-prep で準備済みの Ready な issue を 1 件掴み
 - **マージはしない。** 出口は人レビュー待ちまで。
 - **承認はマージ以外を通す。** worker は worktree の中にいるので取り返せる（`worker-fleet-loop` と同じ線引き）。
 - **中断可能にする。** 1 サイクルは codex の待機を含むと数十分〜数時間になる。**各工程の後に state を書き**、途中から再開できるようにする。
+- **パスもコマンドも組み立てない。** worktree の場所も、投げる skill 名（`/request-execute` か `/execute-bugfix` か）も、`request-create` の出力に書いてある。**自分で持つと二重管理になり、上流が変わった瞬間に壊れる。**
+- **止まった issue を Ready に戻さない。** 戻すと次サイクルが同じ issue を掴む。`blocked[]` に理由付きで記録し、選択から外す。
+- **完全な無人ではない。** `request-create` Step 2 の `AskUserQuestion` は prep で潰せず、**1 issue につき 1 回だけ人が押す**。塞がっている箇所を隠さない。
 
 ## 前提
 
 - **bash-editor MCP**（`create_session` / `submit_prompt` / `get_status` / `get_output` / `write_terminal` / `delete_session`）
+  - **`create_session` は既存の `groupId` を渡すと、その group の稼働中セッションを破壊する**（bash-editor issue #122）。**レーン専用の group（例 `wf-lane`）を使い、他と共有しない。** 呼ぶ側が知らないと防げない種類の破壊なので、手順ではなく前提に置く。
 - **main worktree から起動すること。** worktree の中から起動しない。
+- **1 issue につき 1 回だけ人の操作が要る**（`request-create` Step 2 の `AskUserQuestion`）。完全な無人ではない —— 理由と対処は手順 3。
 - 対象リポジトリが **openspec-workflow を採用していること**。
 - `gh` CLI に **`project` スコープがあること**。無いと Projects の読み書きが 403 になる。
   ```bash
@@ -51,16 +56,22 @@ description: issue-ready-prep で準備済みの Ready な issue を 1 件掴み
 ```json
 { "project": { "id": "PVT_xxx", "number": 3, "owner": "crg-dev-tools",
                 "status_field": "PVTSSF_xxx",
-                "options": { "ready": "abc123", "in_progress": "def456",
+                "options": { "backlog": "aaa000", "ready": "abc123", "in_progress": "def456",
                              "in_review": "ghi789", "blocked": null } },
-  "cycles": 2,
+  "group": "wf-lane", "cycles": 2,
+  "blocked": [
+    { "issue": 1142, "reason": "PR #1164 が scoring-requests.ts を変更。マージ待ち" }
+  ],
   "lane": { "issue": 128, "item_id": "PVTI_xxx", "slug": "add-export-api",
-            "worktree": "../repo-wt-add-export-api", "session": "sess-4",
+            "worktree": "<repo>/.claude/worktrees/add-export-api", "session": "sess-4",
             "step": 5, "pr": 142, "prev_status": "Ready" } }
 ```
 
 - **`project` は 1 度だけ解決して保存する**（手順 0）。毎サイクル ID を引き直さない。
 - **`prev_status` は必ず持つ。** 落ちたときに戻す先が分からなくなる。
+- **`blocked[]` を持つ。** 落ちた issue を手順 1 の選択から外すため（理由つき）。**これが無いと、同じ issue を掴み直して 5 サイクルを 1 件で使い切る。**
+- **`worktree` は自分で組み立てず、`request-create` の出力から読む**（手順 3）。配置規約が変わっても追随する。
+- **`group` はこのレーン専用**。他のセッションと共有しない（前提の `create_session` 破壊）。
 - `lane` が残っていれば、**新しい issue を掴む前にそのサイクルを終わらせる**。
 
 ---
@@ -85,7 +96,7 @@ gh project field-list <number> --owner <owner> --format json \
 | 掴む前 | `Ready` | **どの列を Ready とみなすか人に 1 度だけ聞く** |
 | 作業中 | `In progress` | 同上 |
 | 出口 | `In review` | 同上。**In progress のまま終わらせない** |
-| 失敗時 | `Blocked` | 無ければ `prev_status` に戻す（任意） |
+| 失敗時 | `Blocked` | **無ければ Ready の 1 つ手前（`Backlog` / `Todo`）** を使う。`prev_status`（= Ready）に戻さない —— 手順 9-B |
 
 - **列名はリポジトリごとに違う。** 実在を確認せずに進むと、**手順 8 で毎回止まる**。
 - 聞くのは**初回の 1 度だけ**。答えを `options` に保存して以後は聞かない。**毎サイクル聞くくらいなら自動化する意味がない。**
@@ -102,6 +113,7 @@ gh project item-list <number> --owner <owner> --format json --limit 200 \
 ```
 
 - **In progress に残っているものが先。** 前のサイクルが落ちた痕跡なので、新しく掴む前に片付ける（放置されたレーンが最も高くつく）。
+- **state の `blocked[]` にある issue は選ばない。** 前サイクルで止まった理由は消えていない。**除外しないと、同じ issue を掴み直して上限 5 サイクルを 1 件で使い切る。**
 - Ready が **0 件なら、その旨だけ報告して終了する**。
 - 複数あれば **古い順に 1 件**。並び順の根拠が他にあるなら（優先度フィールド等）それに従う。
 
@@ -132,44 +144,90 @@ gh project item-edit --project-id <state.project.id> --id <item_id> \
 **だから推測しない。人が `issue-ready-prep` で決めて issue に書いた値を、そのまま渡す。**
 
 ```yaml
-# issue 本文の <!-- worker-fleet:prep v1 --> ブロック
-type: feature
+# issue 本文の <!-- worker-fleet:prep v2 --> ブロック
+type: new-feature          # request-create の語彙をそのまま使う（feature ではない）
 slug: add-export-api
 base: dev
 goal: ...
 background: ...
-acceptance: [...]
+acceptance: [...]          # 検証可能な形（数値・コマンド・観測可能な状態）
+agents: []                 # Q2a / Q2b
+skip_review: false         # Q2c
+skip_request_review: false # Q2c
+reviewer: <handle>         # 手順 7 で使う
 ```
 
 このセッションで `/request-create` を起動し、**ヒアリングには prep ブロックの値で答える**。
 
 - **値の出所は人**（`prepared_by` に記録されている）。AI が候補を出したり既定を採用したりしていないので、`request-create` の原則を満たす。
 - **prep に無い項目を推測して答えない。** 聞かれて答えられない項目が出たら、**そこで止めて手順 9-B**（Status を戻し、「prep が不足している」と issue にコメントする）。**その場で埋めると、人が決めるはずの値を AI が決めたことになる。**
-- **`base` は正規化せずそのまま渡す。** 書いてある文字列が正である。
+- **prep が v1 なら止める。** `skip_review` / `skip_request_review` / `reviewer` が無い、`type` が `feature`（`request-create` に存在しない語彙）等。**足りない分を既定値で埋めない**（それも AI が決めた値になる）。`issue-ready-prep` で v2 に作り直してもらう。
+- **`base` と `type` は正規化・読み替えせずそのまま渡す。** 書いてある文字列が正である。
 - 中断された場合、**worktree と未 commit の request.md は自動削除されない**（`request-create` 側の仕様）。再開時は残骸を先に確認する。
+
+#### ここは無人ではない —— Step 2 で必ず 1 回止まる
+
+**`request-create` の Step 2 は `AskUserQuestion` ツールの呼び出し**（Q2a/Q2b/Q2c の multiSelect）である。**値が prep に書いてあっても、呼び出し自体が発火して人の操作を待つ。** AI が代理で押せるツールではないので、**prep ブロックに何を書いても Step 2 は潰せない**。
+
+- 平文のヒアリング（Step 3 の要件・Step 4 の base ブランチ）は prep の値で答えられる。**塞がっているのは Step 2 だけ。**
+- したがって **1 issue につき 1 回、人のクリックが要る**。`/loop` や `worker-fleet-loop` で夜間に流す場合、**そこで待機する**。
+- **塞がっている箇所が 1 つだと分かっていれば運用は組める**（レーン投入時にまとめて押す等）。**「無人で回る」と書いて実際に止まるより、1 箇所だと明示するほうが役に立つ。**
+- 本筋の解決は `openspec-workflow` 側に非対話経路（prep 相当の入力で Step 2 を飛ばす）を作ること。**この skill の scope 外**だが、上流に issue を立てて参照を張る価値がある。
+
+#### Step 5.5 で止まるのは受入基準の書き方が原因
+
+`request-create` の Step 5.5（request-reviewer ゲート）は request.md の意味的妥当性を見て、**2 iteration で needs-fix が残ると停止する**（worktree と未 commit の request.md は残る）。
+
+- ここで測られるのは主に**受入基準の検証可能性**である。`issue-ready-prep` は受入基準を**検証可能な形**（数値・コマンド・観測可能な状態）で書かせる建付けなので、**ここで止まったら prep の質の問題**として報告する（「実行が失敗した」ではない）。
+- 手順 9-B へ。issue コメントに **Step 5.5 のどの指摘で止まったか**を残す。次の prep で直せる。
 
 ### 3-b. worker を 1 本立てる
 
-worktree ができてから起動する。**ここから先は対話が無いので worker に任せられる。**
+**`request-create` の完了出力をそのまま使う。パスもコマンドも組み立てない。**
 
 ```text
-create_session(cwd: <worktree>, role: "worker", name: <slug>)
-write_terminal(id, "claude\r")          # 起動を待つ（get_status が idle になるまで）
+Request created successfully.
+Worktree: {WORKTREE_PATH}          ← 絶対パス。state の worktree はここから読む
+Branch: {PREFIX}/{SLUG}
+
+Next step — Option 1 (new terminal, stable fallback):
+  cd "{WORKTREE_PATH}" && claude --permission-mode auto --model sonnet
+  Then in the new session, run:
+    /request-execute openspec-workflow/requests/active/{slug}    ← type が bug-fix なら /execute-bugfix
 ```
 
-起動したら、**投入する前に 2 つ確認する。**
+- **worktree パスを自分で組み立てない。** 現行の配置は `<repo>/.claude/worktrees/<slug>` だが、レガシー配置（`../<repo>-wt-<slug>`）も存在し、規約は変わりうる。**出力の `Worktree:` を読んで state に書く。**
+- **投入するコマンドも出力から読む。** `type: bug-fix` のとき `request-create` は **`/execute-bugfix`** を案内する（要件駆動ではなく症状駆動: トリアージ → 再現確認 → RCA → 修正）。**自分で分岐条件を持つと二重管理になる**ので、`Next step` 行に書いてあるものをそのまま使う。
+- **request のパス引数（`openspec-workflow/requests/active/<slug>`）を落とさない。** 引数無しで投げると、worker はどの request を実行するのか分からない。
+
+セッションを立てる。
+
+```text
+get_status()                                   # 既存 group を確認してから
+create_session(cwd: <Worktree: の値>, role: "worker", groupId: <state.group>, name: <slug>)
+write_terminal(id, "claude\r")                 # 起動を待つ（get_status が idle になるまで）
+```
+
+- **`create_session` に既存の group を渡さない。** 渡すとその group の**稼働中セッションが破壊される**（前提参照）。**レーン専用の group** を state に持ち、それだけを使う。
+- **立てる前に `get_status` で列挙する。** 同じ group に知らないセッションが居たら、**作らずにエスカレーションする**。実測で、この経路で稼働中の worker が 2 本消えている。
+- **`--permission-mode auto` で起動しない。** `request-create` の案内はそれを推奨しているが、**この skill はマージ承認を人に回すために承認プロンプトを見る必要がある**。auto にすると、見る前に通ってしまう。
+
+起動したら、**投入する前に 3 つ確認する。**
 
 ```text
 submit_prompt(id, "pwd && ls openspec-workflow/requests/active/")
 ```
 
-- **cwd が worktree であること。** 間違えると **main worktree で実装が始まる**。
+- **`pwd` が state の `worktree` と一致すること。** 目視ではなく**一致を assert する**。ずれていたら **main worktree で実装が始まる**ので、そこで止める。
+- request ディレクトリが存在すること。
 - **`/codex-draft-review` が引けること**（手順 6 で使う）。plugin が user scope に入っていれば通るが、**project scope で無効化されている前例がある**。引けないなら手順 6 に到達してから気づくことになるので、**ここで確認する**。
 
-確認が取れてから投入する。
+確認が取れてから、**出力から読んだコマンド**を投入する。
 
 ```text
-submit_prompt(id, "/request-execute")
+submit_prompt(id, "/request-execute openspec-workflow/requests/active/<slug>")
+# type が bug-fix なら
+submit_prompt(id, "/execute-bugfix openspec-workflow/requests/active/<slug>")
 ```
 
 ### 4. openspec-workflow を回す（監視しながら）
@@ -215,7 +273,15 @@ gh pr view <n> --json isDraft,reviewRequests --jq '{isDraft, reviewers: [.review
 ```
 
 - `isDraft == false` **かつ reviewer がアサインされている**こと。**アサインの無い PR は誰にも見られない。**
-- どちらか欠けていたら、**この skill が補う**（`gh pr ready <n>` / `gh pr edit <n> --add-reviewer <handle>`）。
+- どちらか欠けていたら、**この skill が補う**。
+
+```bash
+gh pr ready <n>
+gh pr edit <n> --add-reviewer <prep ブロックの reviewer>
+```
+
+- **reviewer は prep ブロックから取る。** 自分で選ばない —— **誰に見せるかは人が決めることで、勝手に他人の仕事にしない**。
+- prep に `reviewer` が無い（v1 ブロック）なら、**アサインせずに報告する**。**「アサインの無い PR は誰にも見られない」ので、黙って出口を通さない。**
 
 ### 8. Status を進め、worker を閉じる
 
@@ -241,11 +307,14 @@ gh project item-edit --project-id <state.project.id> --id <item_id> \
 ```bash
 gh project item-edit --project-id <state.project.id> --id <item_id> \
   --field-id <state.project.status_field> \
-  --single-select-option-id <options.blocked ?? prev_status の option-id>
+  --single-select-option-id <options.blocked ?? options.backlog>
 gh issue comment <n> --body "..."
 ```
 
-- `Blocked` 列があればそこへ、無ければ **`prev_status` に戻す**。
+- `Blocked` 列があればそこへ、**無ければ Ready の 1 つ手前（`Backlog` / `Todo`）**へ。
+- **`prev_status`（= ほぼ必ず `Ready`）に戻さない。** 戻すと prep ブロックは残ったままなので、**次サイクルの手順 1 が同じ issue を掴んで同じ場所で落ちる**。上限 5 サイクルが 1 件で溶ける。
+- **`Ready` の意味は「無人で着手可能」である。** 無人で着手して落ちた issue をそこに戻すのは、定義に反する。
+- **state の `blocked[]` に issue 番号と理由を書く**（手順 1 の選択から外すため）。issue コメントは残るが、**手順 1 はコメントを読まない**ので、それだけでは選択に効かない。
 - **issue にコメントを残す。** どこまで進んで何で止まったか、PR があればその URL。**Status を戻しただけだと、次に掴んだ人が同じところで止まる。**
 - **worker と worktree は残す。** 調査材料を消さない。
 - 報告してこの呼び出しを終える。次の issue には進まない。
