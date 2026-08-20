@@ -34,8 +34,8 @@
 （事前）issue-ready-prep が claim を確かめ、prep ブロック v2 を書き、Status を Ready にする
 0. Projects の列（Ready / In progress / In review / Blocked）を 1 度だけ解決して state に保存
 0b. **In progress を PR の実態から引き直す（reconcile）** ── 出口が飛んだレーンをここで埋める
-1. Ready の issue を 1 件選ぶ（In progress の残骸が先。**prep ブロックが無いものは拾わず報告**）
-2. Status を In progress にする ── 作業より先に。掴んだことを見えるようにする
+1. Ready の issue を 1 件選ぶ（**assignee 空**のみ。reconcile 後も In progress の残骸が先。**prep ブロックが無いものは拾わず報告**）
+2. Status を In progress にし、**自分を assign** ── 作業より先に。掴んだことを Status 以外にも出す
 3. /request-create を回し、**prep ブロックの値でヒアリングに答える**（推測しない。足りなければ止める）
    ※ Step 2 の AskUserQuestion だけは潰せず、**1 issue につき 1 回人が押す**
 3b. **出力の `Worktree:` と `Next step` をそのまま使う**。レーン専用 group で worker を立て、pwd 一致と /codex-draft-review を確認 → /request-execute（bug-fix なら /execute-bugfix）
@@ -44,7 +44,7 @@
 6. /codex-draft-review を同じ worker に投げてレビューを解消する
 7. **レビューが実際に回ったか**を確認する（自分が draft 化した PR か／未 resolve 0 件を自分で測る／reviewer）
 8. Status を In review へ。worker を閉じる（worktree は残す）
-9. 次の issue へ（上限 5 サイクル）／止まったら **Ready の 1 つ手前**へ戻し、blocked に記録する
+9. 次の issue へ（上限 5 サイクル）／止まったら **Ready の 1 つ手前**へ戻し、**assign を外し**、blocked に記録する
 ```
 
 ## なぜ codex ではなく Claude worker か
@@ -106,6 +106,7 @@ worker が実行するのは `/request-execute` で、**delta spec・`tasks.md`�
 - **1 サイクルは長い。** codex はサマリの 4〜5 分後に指摘を出すため、レビュー解消だけで 10 分以上かかります。**各工程の後に state を書き、中断・再開できる**ようにしています
 - **上限は 5 サイクル。** 超えたら残り件数を報告して終了します
 - **`/request-create` の答えは prep ブロックから取る。** AI が推測して答えると、`request-create` が禁じている「AI が値を決める」をやったことになります。**足りなければその場で埋めず、止めて人に返します**
+- **`Ready` は「assign されていない」も含む。** assign は Status と独立した claim（人が着手する意思表示）で、無人着手とは両立しません。**この定義変更もチームに伝わっている必要があります**
 - **claim を確かめてから prep する。** 人が 1 件ずつ Ready に上げていた頃は人の記憶がその役目でしたが、無人化した瞬間に消えます（実測: prep した 6 件中 5 件が既に open PR を持っていた）。判定は **claimed / clear / 判定不能**の 3 値で、**推測で clear にしません**
 - **`create_session` に既存 group を渡さない。** 渡すとその group の稼働中セッションが破壊されます（実測: worker 2 本が消失）。レーン専用 group を使い、立てる前に `get_status` で列挙します
 - **書き忘れは防がず、後から引き直す。** 出口は手順 8 だけではありません（人が引き取る・worker を手で閉じる・supervisor が落ちる）。**書き込み点を増やす対策は出口が増えるたびに漏れる**ので、入口で reconcile します（実測: 完走扱いの 2 レーンが reviewer ゼロ / In progress のまま放置されていた）

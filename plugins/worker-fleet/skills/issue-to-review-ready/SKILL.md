@@ -127,6 +127,7 @@ gh pr list --state all --head <branch> --json number,isDraft,state,reviewRequest
 - **`In progress` が 2 つの意味を持つのを解消する手順である。** これが無いと、手順 1 が**完走済みのレーンを「落ちたレーン」と誤認して掴みに行き、サイクルが空転する**。
 - 実測で、完走扱いの 2 レーンが **reviewer ゼロ / Status = In progress** のまま放置されていた。`isDraft: false` まで到達しているので手順 6 は終わっており、**手順 7 と 8 だけが揃って飛んでいた**。
 - reviewer の handle は**その issue の prep ブロック**から取る。無ければアサインせず、報告に載せる。
+- **In review / Done に直したら、レーンの assign（手順 2 で付けた `@me`）も外す。** 作業は終わっているので、掴んだ印を残さない。
 
 ### 1. Ready の issue を 1 件選ぶ
 
@@ -135,8 +136,11 @@ gh pr list --state all --head <branch> --json number,isDraft,state,reviewRequest
 ```bash
 gh project list --owner <owner>
 gh project item-list <number> --owner <owner> --format json --limit 200 \
-  --jq '[.items[] | select(.status == "Ready" and .content.type == "Issue")]'
+  --jq '[.items[] | select(.status == "Ready" and .content.type == "Issue"
+         and ((.content.assignees // []) | length) == 0)]'
 ```
+
+**assignee が居る issue は掴まない。** assign は Status とは独立した claim で、**人が着手する意思表示**である。掴んだ後にやるのは Status の書き換え・worktree 作成・実装・push・PR 作成なので、**他人の担当作業を本人に断りなく進めることになる**。「無人で着手可能」と「人が着手する予定」は両立しない。
 
 - **reconcile（手順 0-b）後も In progress に残っているものが先。** そこまで残ったものは本当に落ちたレーンなので、新しく掴む前に片付ける（放置されたレーンが最も高くつく）。**reconcile 前に判断すると、完走済みのレーンを掴んで空転する。**
 - **state の `blocked[]` にある issue は選ばない。** 前サイクルで止まった理由は消えていない。**除外しないと、同じ issue を掴み直して上限 5 サイクルを 1 件で使い切る。**
@@ -160,8 +164,15 @@ gh project item-edit --project-id <state.project.id> --id <item_id> \
   --field-id <state.project.status_field> --single-select-option-id <options.in_progress>
 ```
 
+掴んだことを、**Status 以外にも出す**。
+
+```bash
+gh issue edit <n> --add-assignee @me
+```
+
 - **ここで失敗したら中止する。** Status を動かせない状態で作業を始めると、**掴んだことが誰にも見えないまま二重着手が起きる**。
 - 変更前の Status を `prev_status` に記録する。手順 9-B で戻す。
+- **assign も付ける。** Status を見ていない人にも「誰かが掴んだ」が見える。手順 1 が assignee 空だけを拾うので、**これがレーン間・人との相互排他になる**。手順 9-B で戻すときは**外す**。
 
 ### 3. request と worktree を作る —— **prep ブロックの値をそのまま渡す**
 
@@ -377,8 +388,11 @@ gh project item-edit --project-id <state.project.id> --id <item_id> \
 gh project item-edit --project-id <state.project.id> --id <item_id> \
   --field-id <state.project.status_field> \
   --single-select-option-id <options.blocked ?? options.backlog>
+gh issue edit <n> --remove-assignee @me
 gh issue comment <n> --body "..."
 ```
+
+- **assign を外す。** 付けたまま戻すと、**次に誰も（人もレーンも）掴めない issue になる**。掴んだ印は、手放すときに消す。
 
 - `Blocked` 列があればそこへ、**無ければ Ready の 1 つ手前（`Backlog` / `Todo`）**へ。
 - **`prev_status`（= ほぼ必ず `Ready`）に戻さない。** 戻すと prep ブロックは残ったままなので、**次サイクルの手順 1 が同じ issue を掴んで同じ場所で落ちる**。上限 5 サイクルが 1 件で溶ける。

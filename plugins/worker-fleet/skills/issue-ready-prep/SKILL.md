@@ -26,6 +26,7 @@ issue を **「無人で着手できる」状態**にしてから `Ready` に上
 | Ready の意味 | 人が着手してよい | **`issue-to-review-ready` が拾ってよい** |
 | 受入基準が無い issue | Ready に置ける | **置けない**（出口を測れないため） |
 | base ブランチ | 着手時に決める | **Ready に上げる時点で決まっている** |
+| **assign 済みの issue** | Ready に置ける（担当者が着手する） | **置けない**（assign は人が着手する意思表示で、無人着手と両立しない） |
 
 **この変更はチームに伝わっている必要がある。** 伝えないまま運用すると、人が手で Ready に上げた issue をパイプラインが拾って、手順 3 で止まる。
 
@@ -90,9 +91,14 @@ gh issue view <n> --json body --jq '.body' | grep -q 'worker-fleet:prep' || echo
 
 | 判定 | 条件 | 行き先 |
 |---|---|---|
-| **claimed** | open PR の変更ファイルと issue の対象ファイルが重なり、**かつ** PR のタイトル / 本文が issue と同じ目的を述べている | **prep しない。** 該当 PR 番号を報告する |
-| **clear** | 重なりがゼロ | 手順 3 へ |
+| **claimed** | **assignee が居る**、または open PR の変更ファイルと issue の対象ファイルが重なり、**かつ** PR のタイトル / 本文が issue と同じ目的を述べている | **prep しない。** assignee / PR 番号を報告する |
+| **clear** | assignee が空で、重なりもゼロ | 手順 3 へ |
 | **判定不能** | issue 本文に対象パスの記述が無い／ホットファイルでしか重なっていない | **人に出す。** 勝手に進めない |
+
+**claim は 2 種類ある。** open PR（作業が始まっている）と **assignee（人が着手する意思表示）**。後者は Status とは独立で、**「無人で着手可能」とは両立しない**。
+
+- **assign 済みの issue は Ready に上げない。** 上げるなら、**assign を外してよいか人に聞いてから**にする（本人の担当を勝手に剥がさない）。
+- **`gh issue edit <n> --remove-assignee` を勝手に実行しない。** 判断は人のもの。
 
 ```bash
 gh pr list --state open --json number,title,files,body --limit 100 \
