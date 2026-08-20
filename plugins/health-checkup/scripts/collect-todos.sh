@@ -74,7 +74,7 @@ fi
 
 REPO="$(hc_gh_repo)"
 if ! hc_gh_ready || [ -z "$REPO" ]; then
-  reason="gh CLI が無い / 未認証のため参照付き TODO の解決可否を判定できない"
+  reason="gh CLI が無い / 未認証 / origin から owner・repo を解決できないため、参照付き TODO の解決可否を判定できない"
   hc_skip "todo.referenced_open" "$reason"
   hc_skip "todo.referenced_missing" "$reason"
   exit 0

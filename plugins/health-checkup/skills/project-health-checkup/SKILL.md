@@ -83,7 +83,7 @@ description: リポジトリの定期健診。開発中にオフロードされ�
 | `HC_HTML_FILE` | `health.html` | HTML の出力先 |
 | `HC_DATE` | 今日 | セクション日付（再実行時の固定用） |
 
-## 指標（7 項目）
+## 指標（8 項目）
 
 | # | 指標 | 依存 | 担当 |
 |---|---|---|---|
@@ -94,6 +94,7 @@ description: リポジトリの定期健診。開発中にオフロードされ�
 | 5 | 長期滞留 issue | gh | script |
 | 6 | milestone なし issue | gh | script |
 | 7 | spec と実装の乖離（代理指標） | spec 基盤 | script |
+| 8 | **テストの実効性**（切られたテスト・落ちないテスト） | gh | script ＋ LLM（skip 理由の宛先読解） |
 
 #2 の 3 値だけは率にできない（分母が LLM 判定に依存して動く）。
 
@@ -103,7 +104,18 @@ description: リポジトリの定期健診。開発中にオフロードされ�
 | `traced-missing` | 宛先が特定できるが**実在しない** | **0。1 件でも異常**（嘘の保証） |
 | `untraceable` | 「別の箇所で」だけで場所が書かれていない | 推移で見る |
 
-#3 の c2、#4、#7 の一部は多くのリポジトリで `skipped` になる。それが正しい挙動（デフォルト値を代入しない）。
+#8 が見るのは**カバレッジでは映らない失敗**である。切られたテスト（`it.skip` 等）は他のテストが同じ行を通るので率がほとんど動かず、落ちる条件の無いテスト（アサーションなし・常に真・対象自身を mock）は**実行はされるので率をむしろ上げる**。
+
+| 判定 | 内容 | 基準 |
+|---|---|---|
+| `skip.unreferenced` | 切られていて、issue 参照が無い | 減少（追跡されていない停止） |
+| `no_assertion` / `always_true` | 落ちる条件が存在しない | **0** |
+| `self_mocked` | 対象自身を mock している（自分のスタブに対する assert） | 減少 |
+| `green_by_config` | テストではなく設定で緑にしている | 減少 |
+
+#8 の検出は**意図的に狭い**。取りこぼすと数字が 1 つ小さくなるだけだが、誤検出は**レポート全体を読まれなくする**。
+
+#3 の c2、#4、#7 の一部は多くのリポジトリで `skipped` になる。それが正しい挙動（デフォルト値を代入しない）。テストファイルの命名が既定と違うリポジトリでは #8 も `skipped` になる（分母が無いまま数えない）。
 
 ## 手順
 
@@ -151,13 +163,14 @@ LLM に渡す前に、機械的に決まるものを全部処理する。**手�
   bash "$P/collect-coverage.sh"                                      # #3
   bash "$P/collect-e2e.sh"         --detail-out "$W/d-e2e.md"        # #4
   bash "$P/collect-spec-drift.sh"  --detail-out "$W/d-spec.md"       # #7
+  bash "$P/collect-tests.sh"       --unreferenced-out "$W/skip-unref.txt" --detail-out "$W/d-tests.md"  # #8
 } > "$W/metrics.tsv"
 ```
 
 ### 4. subagent 1 個に自由文から宛先を抽出させる
 指標ごとに fan-out しない。**LLM が必要な範囲は狭いので 1 個で足りる。**
 
-読ませる範囲は手順 2 の差分ファイル（初回は空）＋ `$W/todo-unref.txt`。走査する発生源は以下に**限る**（網羅を狙うと context と精度が両方悪化する）:
+読ませる範囲は手順 2 の差分ファイル（初回は空）＋ `$W/todo-unref.txt` ＋ `$W/skip-unref.txt`。走査する発生源は以下に**限る**（網羅を狙うと context と精度が両方悪化する）:
 
 | 発生源 | 例 |
 |---|---|
@@ -169,12 +182,13 @@ LLM に渡す前に、機械的に決まるものを全部処理する。**手�
 
 **最後を優先的に走査する。** reviewer が「別の箇所で保障されている」と書いて finding を却下したケースはオフロードの**承認**であり、承認された瞬間に誰も追わなくなる。しかも「レビュー済み」という信頼が乗るので発見が遅れる（deferred が resolved と同じ袋に入って approved になる例が実際にある）。
 
-subagent への指示（この 2 ファイルを出させる。**それ以外は何も出させない**）:
+subagent への指示（この 3 ファイルを出させる。**それ以外は何も出させない**）:
 
 - `$W/offloads.tsv` … #2。**完了の主張**（「もうやってある、証拠は別の場所」）
 - `$W/todo-dests.tsv` … #1 の LLM 部分。`$W/todo-unref.txt` の各行について、**本文から宛先が読み取れるか**
+- `$W/skip-dests.tsv` … #8 の LLM 部分。`$W/skip-unref.txt` の各行について、**なぜ切ったのか・どこで担保すると書かれているか**（skip の理由は行の上のコメントに書かれることが多く、script は同一行しか見ない）
 
-どちらも 1 行 1 主張の TSV（5 列・タブ区切り・ヘッダなし）:
+いずれも 1 行 1 主張の TSV（5 列・タブ区切り・ヘッダなし）:
 
 ```text
 <出所 file:line>	<主張文を 60 字以内に短縮>	<宛先種別>	<宛先識別子>	<traceable|untraceable>
@@ -199,14 +213,18 @@ bash "$P/resolve-references.sh" --in "$W/offloads.tsv" \
 
 bash "$P/resolve-references.sh" --in "$W/todo-dests.tsv" --prefix todo.dest \
   --detail-title "詳細: TODO の宛先不在" --detail-out "$W/d-todo-dest.md" >> "$W/metrics.tsv"
+
+bash "$P/resolve-references.sh" --in "$W/skip-dests.tsv" --prefix test.skip.dest \
+  --detail-title "詳細: skip 理由の宛先不在" --detail-out "$W/d-skip-dest.md" >> "$W/metrics.tsv"
 ```
-`#2` と `#1` は別 prefix で数える（混ぜない）。宛先がリポジトリ外（外部 URL）で文字列照合できないものは `verified` / `missing` に寄せず `external` として別に出る。
+`#2` / `#1` / `#8` は別 prefix で数える（混ぜない）。宛先がリポジトリ外（外部 URL）で文字列照合できないものは `verified` / `missing` に寄せず `external` として別に出る。
 
 ### 6. health.md に追記する（＋必要なら HTML を出す）
 ```bash
 bash "$P/append-health.sh" "$W/metrics.tsv" \
   --detail "$W/d-offload.md" --detail "$W/d-todo.md" --detail "$W/d-todo-dest.md" \
   --detail "$W/d-issues.md" --detail "$W/d-e2e.md" --detail "$W/d-spec.md" \
+  --detail "$W/d-tests.md" --detail "$W/d-skip-dest.md" \
   --note "<初回・差分なし・選択外の指標等の但し書き。無ければ省略>" \
   --html   # 手順 1 で md+html を選ばれたときだけ付ける
 ```
